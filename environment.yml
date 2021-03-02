@@ -1,0 +1,17 @@
+name: hep
+channels:
+  - conda-forge
+  - gurobi
+dependencies:
+  - python=3.8
+  - numpy
+  - pylint
+  - pip
+  - pandas
+  - setuptools
+  - matplotlib
+  - jupyter
+  - gurobi
+  - pip:
+    - pip install git+ssh://git@github.com/sbuschjaeger/PyPruning.git
+    - pip install git+ssh://git@github.com/sbuschjaeger/experiment_runner.git
