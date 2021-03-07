@@ -12,6 +12,6 @@ dependencies:
   - matplotlib
   - jupyter
   - gurobi
-  - pip:
-    - pip install git+ssh://git@github.com/sbuschjaeger/PyPruning.git
-    - pip install git+ssh://git@github.com/sbuschjaeger/experiment_runner.git
+  # - pip:
+  #   - pip install git+ssh://git@github.com/sbuschjaeger/PyPruning.git
+  #   - pip install git+ssh://git@github.com/sbuschjaeger/experiment_runner.git

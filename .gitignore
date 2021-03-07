@@ -1,2 +1,10 @@
 .vscode
-magic04.data
+magic/results
+adult/results
+bank/results
+letter/results
+__pycache__
+*.data
+*.zip
+*.txt
+*.csv
