@@ -154,92 +154,92 @@ else:
 
 models = []
 for dataset in args.dataset:
-    print("Loading {}".forma(dataset))
+    print("Loading {}".format(dataset))
 
-    if args.dataset == "magic":
+    if dataset == "magic":
         #df = pd.read_csv(os.path.join(args.dataset, "magic04.data"))
-        df = pd.read_csv(os.path.join(args.dataset, "magic04.data"))
+        df = pd.read_csv(os.path.join(dataset, "magic04.data"))
         X = df.values[:,:-1].astype(np.float64)
         Y = df.values[:,-1]
         Y = np.array([0 if y == 'g' else 1 for y in Y])
-    elif args.dataset == "covtype":
-        df = pd.read_csv(os.path.join(args.dataset, "covtype.data"), header=None)
+    elif dataset == "covtype":
+        df = pd.read_csv(os.path.join(dataset, "covtype.data"), header=None)
         X = df.values[:,:-1].astype(np.float64)
         Y = df.values[:,-1]
         Y = Y - min(Y)
-    elif args.dataset == "letter":
-        df = pd.read_csv(os.path.join(args.dataset, "letter-recognition.data"), header=None)
+    elif dataset == "letter":
+        df = pd.read_csv(os.path.join(dataset, "letter-recognition.data"), header=None)
         X = df.values[:,1:].astype(np.float64)
         Y = df.values[:,0]
         Y = np.array( [ord(y) - 65 for y in Y] )
-    elif args.dataset == "adult":
+    elif dataset == "adult":
         col_names = ["age", "workclass", "fnlwgt", "education", "education-num", "marital-status",
             "occupation", "relationship", "race", "sex", "capital-gain", "capital-loss", 
             "hours-per-week", "native-country", "label"
         ]
-        df = pd.read_csv(os.path.join(args.dataset, "adult.data"), header=None, names=col_names)
+        df = pd.read_csv(os.path.join(dataset, "adult.data"), header=None, names=col_names)
         df = df.dropna()
         label = df.pop("label")
         Y = np.array([0 if l == " <=50K" else 1 for l in label])
         df = pd.get_dummies(df)
         X = df.values
-    elif args.dataset == "bank":
-        df = pd.read_csv(os.path.join(args.dataset, "bank-full.csv"), header=0, delimiter=";")
+    elif dataset == "bank":
+        df = pd.read_csv(os.path.join(dataset, "bank-full.csv"), header=0, delimiter=";")
         df = df.dropna()
         label = df.pop("y")
         Y = np.array([0 if l == "no" else 1 for l in label])
         df = pd.get_dummies(df)
         X = df.values
-    elif args.dataset == "shuttle":
-        df = pd.read_csv(os.path.join(args.dataset, "shuttle.tst"), delimiter=" ")
+    elif dataset == "shuttle":
+        df = pd.read_csv(os.path.join(dataset, "shuttle.tst"), delimiter=" ")
         Y = df.values[:,-1]
         Y = Y - min(Y)
         Y = np.array( [1 if y > 0 else 0 for y in Y] )
         X = df.values[:,:-1]
-    elif args.dataset == "dry-beans":
-        df = pd.read_excel(os.path.join(args.dataset,"DryBeanDataset","Dry_Bean_Dataset.xlsx"), header = 0)
+    elif dataset == "dry-beans":
+        df = pd.read_excel(os.path.join(dataset,"DryBeanDataset","Dry_Bean_Dataset.xlsx"), header = 0)
         df = df.dropna()
         label = df.pop("Class")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "spambase":
-        df = pd.read_csv(os.path.join(args.dataset,"spambase.csv"), header = 0, delimiter=",")
+    elif dataset == "spambase":
+        df = pd.read_csv(os.path.join(dataset,"spambase.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("class")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "satimage":
-        df = pd.read_csv(os.path.join(args.dataset,"satimage.csv"), header = 0, delimiter=",")
+    elif dataset == "satimage":
+        df = pd.read_csv(os.path.join(dataset,"satimage.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("class")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "connect":
-        df = pd.read_csv(os.path.join(args.dataset,"connect.csv"), header = 0, delimiter=",")
+    elif dataset == "connect":
+        df = pd.read_csv(os.path.join(dataset,"connect.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("class")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "mozilla":
-        df = pd.read_csv(os.path.join(args.dataset,"mozilla.csv"), header = 0, delimiter=",")
+    elif dataset == "mozilla":
+        df = pd.read_csv(os.path.join(dataset,"mozilla.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("state")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "mushroom":
-        df = pd.read_csv(os.path.join(args.dataset,"mushroom.csv"), header = 0, delimiter=",")
+    elif dataset == "mushroom":
+        df = pd.read_csv(os.path.join(dataset,"mushroom.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("class")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = pd.get_dummies(df).values
-    elif args.dataset in ["eeg", "elec"]:
-        if args.dataset == "eeg":
+    elif dataset in ["eeg", "elec"]:
+        if dataset == "eeg":
             data, meta = loadarff(os.path.join("eeg", "EEG Eye State.arff"))
         else:
             data, meta = loadarff(os.path.join("elec", "elecNormNew.arff"))
@@ -260,35 +260,35 @@ for dataset in args.dataset:
         df = df.drop("label", axis=1)
 
         X = df.values.astype(np.float64)
-    elif args.dataset == "wine-quality":
-        df = pd.read_csv(os.path.join(args.dataset,"data.csv"), header = 0, delimiter=";")
+    elif dataset == "wine-quality":
+        df = pd.read_csv(os.path.join(dataset,"data.csv"), header = 0, delimiter=";")
         df = df.dropna()
         label = df.pop("quality")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "thyroid":
-        df = pd.read_csv(os.path.join(args.dataset,"ann-train.data"), header = None, delimiter=" ")
+    elif dataset == "thyroid":
+        df = pd.read_csv(os.path.join(dataset,"ann-train.data"), header = None, delimiter=" ")
         # For some reason there are two whitespaces at the end of each line
         label = df.values[:,-3]
         X = df.values[:,:-3]
         le = LabelEncoder()
         Y = le.fit_transform(label)
-    elif args.dataset == "pen-digits":
-        df = pd.read_csv(os.path.join(args.dataset,"data.txt"), header = None, delimiter=",")
+    elif dataset == "pen-digits":
+        df = pd.read_csv(os.path.join(dataset,"data.txt"), header = None, delimiter=",")
         label = df.values[:,-1]
         X = df.values[:,:-1]
         le = LabelEncoder()
         Y = le.fit_transform(label)
-    elif args.dataset == "japanese-vowels":
-        df = pd.read_csv(os.path.join(args.dataset,"japanese-vowels.csv"), header = 0, delimiter=",")
+    elif dataset == "japanese-vowels":
+        df = pd.read_csv(os.path.join(dataset,"japanese-vowels.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("speaker")
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif args.dataset == "gas-drift":
-        df = pd.read_csv(os.path.join(args.dataset,"gas-drift.csv"), header = 0, delimiter=",")
+    elif dataset == "gas-drift":
+        df = pd.read_csv(os.path.join(dataset,"gas-drift.csv"), header = 0, delimiter=",")
         df = df.dropna()
         label = df.pop("Class")
         le = LabelEncoder()
