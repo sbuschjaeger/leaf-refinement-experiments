@@ -1,0 +1,8 @@
+[submodule "experiment_runner"]
+	path = experiment_runner
+	url = git@github.com:sbuschjaeger/experiment_runner.git
+	branch = master
+[submodule "PyPruning"]
+	path = PyPruning
+	url = git@github.com:sbuschjaeger/PyPruning.git
+	branch = master

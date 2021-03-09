@@ -8,6 +8,7 @@ import pandas as pd
 from datetime import datetime
 import argparse
 import random
+from scipy.io.arff import loadarff
 import copy
 
 from functools import partial
@@ -74,6 +75,7 @@ def fit(cfg, from_pre):
     pruneidx = cfg["pruneidx"][i]
     X, Y = cfg["X"][pruneidx],cfg["Y"][pruneidx]
     estimators = cfg["estimators"][i]
+    # print("Received {} estimators. Now pruning.".format(len(estimators)))
     model.prune(X, Y, estimators)
     return model
 
@@ -86,10 +88,10 @@ def post(cfg, from_fit):
 
     pred = from_fit.predict_proba(X)
     scores["accuracy"] = 100.0 * accuracy_score(Y, pred.argmax(axis=1))
-    if(pred.shape[1] == 2):
-        scores["roc_auc"] = roc_auc_score(Y, pred.argmax(axis=1))
-    else:
-        scores["roc_auc"] = roc_auc_score(Y, pred, multi_class="ovr")
+    # if(pred.shape[1] == 2):
+    #     scores["roc_auc"] = roc_auc_score(Y, pred.argmax(axis=1))
+    # else:
+    #     scores["roc_auc"] = roc_auc_score(Y, pred, multi_class="ovr")
     scores["n_nodes"] = sum( [ est.tree_.node_count for est in from_fit.estimators_] )
     scores["n_estimators"] = len(from_fit.estimators_)
     return scores
@@ -107,8 +109,8 @@ parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split.
 parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=3600)
 args = parser.parse_args()
 
-if not args.dataset in ["magic", "covtype", "letter", "bank", "adult"]:
-    print("Choose one of the following datasets: {{magic, covtype, letter, bank, adult}}")
+if not args.dataset in ["magic", "covtype", "letter", "bank", "adult", "shuttle", "dry-beans", "eeg", "elec", "wine-quality", "thyroid", "pen-digits", "mushroom", "spambase", "satimage", "japanese-vowels", "gas-drift", "connect", "mozilla"]:
+    print("You choose {} as a dataset. Please choose one of the following datasets: {{magic, covtype, letter, bank, adult, shuttle, dry-beans, eeg, elec, wine-quality, thyroid, pen-digits, mushroom, spambase, satimage, japanese-vowels, gas-drift, connect, mozilla}}".format(args.dataset))
     exit(1)
 
 if not args.base in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
@@ -183,6 +185,110 @@ elif args.dataset == "bank":
     Y = np.array([0 if l == "no" else 1 for l in label])
     df = pd.get_dummies(df)
     X = df.values
+elif args.dataset == "shuttle":
+    df = pd.read_csv(os.path.join(args.dataset, "shuttle.tst"), delimiter=" ")
+    Y = df.values[:,-1]
+    Y = Y - min(Y)
+    Y = np.array( [1 if y > 0 else 0 for y in Y] )
+    X = df.values[:,:-1]
+elif args.dataset == "dry-beans":
+    df = pd.read_excel(os.path.join(args.dataset,"DryBeanDataset","Dry_Bean_Dataset.xlsx"), header = 0)
+    df = df.dropna()
+    label = df.pop("Class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "spambase":
+    df = pd.read_csv(os.path.join(args.dataset,"spambase.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "satimage":
+    df = pd.read_csv(os.path.join(args.dataset,"satimage.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "connect":
+    df = pd.read_csv(os.path.join(args.dataset,"connect.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "mozilla":
+    df = pd.read_csv(os.path.join(args.dataset,"mozilla.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("state")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "mushroom":
+    df = pd.read_csv(os.path.join(args.dataset,"mushroom.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = pd.get_dummies(df).values
+elif args.dataset in ["eeg", "elec"]:
+    if args.dataset == "eeg":
+        data, meta = loadarff(os.path.join("eeg", "EEG Eye State.arff"))
+    else:
+        data, meta = loadarff(os.path.join("elec", "elecNormNew.arff"))
+
+    Xdict = {}
+    for cname, ctype in zip(meta.names(), meta.types()):
+        # Get the label attribute for the specific dataset:
+        #   eeg: eyeDetection
+        #   elec: class
+        if cname in ["eyeDetection", "class"]:
+            enc = LabelEncoder()
+            Xdict["label"] = enc.fit_transform(data[cname])
+        else:
+            Xdict[cname] = data[cname]
+    df = pd.DataFrame(Xdict)
+    df = pd.get_dummies(df)
+    Y = df["label"].values.astype(np.int32)
+    df = df.drop("label", axis=1)
+
+    X = df.values.astype(np.float64)
+elif args.dataset == "wine-quality":
+    df = pd.read_csv(os.path.join(args.dataset,"data.csv"), header = 0, delimiter=";")
+    df = df.dropna()
+    label = df.pop("quality")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "thyroid":
+    df = pd.read_csv(os.path.join(args.dataset,"ann-train.data"), header = None, delimiter=" ")
+    # For some reason there are two whitespaces at the end of each line
+    label = df.values[:,-3]
+    X = df.values[:,:-3]
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+elif args.dataset == "pen-digits":
+    df = pd.read_csv(os.path.join(args.dataset,"data.txt"), header = None, delimiter=",")
+    label = df.values[:,-1]
+    X = df.values[:,:-1]
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+elif args.dataset == "japanese-vowels":
+    df = pd.read_csv(os.path.join(args.dataset,"japanese-vowels.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("speaker")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
+elif args.dataset == "gas-drift":
+    df = pd.read_csv(os.path.join(args.dataset,"gas-drift.csv"), header = 0, delimiter=",")
+    df = df.dropna()
+    label = df.pop("Class")
+    le = LabelEncoder()
+    Y = le.fit_transform(label)
+    X = df.values
 else:
     exit(1)
 
@@ -191,6 +297,10 @@ X = scaler.fit_transform(X)
 kf = StratifiedKFold(n_splits=args.xval, random_state=12345, shuffle=True)
 idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
 
+from collections import Counter
+print("Data: ", X.shape, " ", X[0:5,:])
+print("Labels: ", Y.shape, " ", Counter(Y))
+# print("Labels: ", Y.shape, " ", set(Y))
 
 # HeterogenousForest requires a list of heights so pack it into another list
 if args.base == "HeterogenousForest":
@@ -200,7 +310,7 @@ else:
 
 models = []
 for h in heights:
-    print("Training initial estimators for h = {}".format(h))
+    print("Training initial {} with h = {}".format(args.base, h))
 
     trainidx = []
     testidx = []
@@ -309,7 +419,7 @@ for h in heights:
     for loss in ["mse", "cross-entropy"]:
         for update_leaves in [False, True]:
             for K in args.n_prune:
-                for reg in [1.0,1e-1,1e-2,1e-3,1e-4,0]:
+                for reg in [1e-3,1e-4,1e-5,1e-6,0]:
                     models.append(
                         {
                             "model":"ProxPruningClassifier",
@@ -318,7 +428,7 @@ for h in heights:
                                 "l_ensemble_reg":K,
                                 "l_tree_reg":reg,
                                 "batch_size" : 32,
-                                "epochs": 10,
+                                "epochs": 20,
                                 "step_size": 1e-2,
                                 "verbose":False,
                                 "loss":loss,
@@ -327,7 +437,6 @@ for h in heights:
                             **experiment_cfg
                         }
                     )
-
     
 
 random.shuffle(models)

@@ -39,10 +39,25 @@ def nice_name(row):
         #     return "{} with {}".format(row["model"], "HF")
 
 
-#dataset = "magic"
 #dataset = "adult"
+#dataset = "bank"
+dataset = "connect"
+#dataset = "covtype"
+#dataset = "dry-beans"
+#dataset = "eeg"
+#dataset = "elec"
+#dataset = "gas-drift"
+#dataset = "japanese-vowels"
 #dataset = "letter"
-dataset = "bank"
+#dataset = "magic"
+#dataset = "mozilla"
+#dataset = "mushroom"
+#dataset = "pen-digits"
+#dataset = "satimage"
+#dataset = "shuttle"
+#dataset = "spambase"
+#dataset = "thyroid"
+#dataset = "wine-quality"
 
 dataset = os.path.join(dataset, "results")
 all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
@@ -58,7 +73,7 @@ df["accuracy"] = df["scores.mean_accuracy"]
 df["n_nodes"] = df["scores.mean_n_nodes"]
 df["fit_time"] = df["scores.mean_fit_time"]
 df["n_estimators"] = df["scores.mean_n_estimators"]
-df["roc_auc"] = df["scores.mean_roc_auc"]
+#df["roc_auc"] = df["scores.mean_roc_auc"]
 
 # Lets assume a native implementation with
 #  - unsigned int left, right
@@ -67,18 +82,24 @@ df["roc_auc"] = df["scores.mean_roc_auc"]
 #  - float threshold
 #  - float pred[n_classes]
 #   ==> 4+4+1+4+4+4*n_classes = 17 + 4*n_classes
-if dataset in ["magic", "adult"]:
-    n_classes = 2
-elif dataset == "letter":
+if dataset == "letter":
     n_classes = 26
+elif dataset == "thyroid":
+    n_classes = 3
+elif dataset == "covtype":
+    n_classes = 7
+elif dataset == "wine-quality":
+    n_classes = 6
+elif dataset == "pen-digits":
+    n_classes = 10
 else:
-    n_classes = 1
+    n_classes = 2
 df["KB"] = df["scores.mean_n_nodes"] * (17 + 4*n_classes)  / 1024.0
 
 df = df.round(decimals = 3)
-tabledf = df[["nice_name", "accuracy", "roc_auc", "n_nodes", "fit_time", "n_estimators", "KB","height"]]
+tabledf = df[["nice_name", "accuracy", "n_nodes", "fit_time", "n_estimators", "KB","height"]]
 #tabledf = tabledf.loc[tabledf["n_estimators"] < 100]
-#tabledf = tabledf.loc[tabledf["KB"] < 256]
+# tabledf = tabledf.loc[tabledf["KB"] < 512]
 #tabledf = tabledf.loc[tabledf["height"] > 10]
 
 tabledf = tabledf.sort_values(by=['accuracy'], ascending = False)
