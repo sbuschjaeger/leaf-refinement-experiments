@@ -366,55 +366,16 @@ for h in heights:
     )
 
     for K in args.n_prune:
-        models.append(
-            {
-                "model":"RandomPruningClassifier",
-                "model_params":{
-                    "n_estimators":K
-                },
-                **experiment_cfg
-            }
-        )
-
-        models.append(
-            {
-                "model":"guo2018",
-                "model_params":{
-                    "n_estimators":K
-                },
-                **experiment_cfg
-            }
-        )
-
-        models.append(
-            {
-                "model":"lu2010",
-                "model_params":{
-                    "n_estimators":K
-                },
-                **experiment_cfg
-            }
-        )
-
-        models.append(
-            {
-                "model":"error",
-                "model_params":{
-                    "n_estimators":K
-                },
-                **experiment_cfg
-            }
-        )
-        
-        models.append(
-            {
-                "model":"neg_auc",
-                "model_params":{
-                    "n_estimators":K
-                },
-                **experiment_cfg
-            }
-        )
+        for m in ["RandomPruningClassifier", "individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "combined", "drep", "reduced_error"]:
+            models.append(
+                {
+                    "model":m,
+                    "model_params":{
+                        "n_estimators":K
+                    },
+                    **experiment_cfg
+                }
+            )
 
     for loss in ["mse", "cross-entropy"]:
         for update_leaves in [False, True]:
