@@ -2,7 +2,6 @@
 
 import sys
 import os
-from PyPruning.Metrics import neg_auc
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -59,7 +58,7 @@ def pre(cfg):
     elif cfg["model"] == "ProxPruningClassifier":
         model_ctor = ProxPruningClassifier
     else:
-        model_ctor = partial(create_pruner, paper = cfg["model"]) 
+        model_ctor = partial(create_pruner, method = cfg["model"]) 
 
     model_params = cfg["model_params"]
 
