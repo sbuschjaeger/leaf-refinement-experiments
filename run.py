@@ -75,7 +75,7 @@ def fit(cfg, from_pre):
     X, Y = cfg["X"][pruneidx],cfg["Y"][pruneidx]
     estimators = cfg["estimators"][i]
     # print("Received {} estimators. Now pruning.".format(len(estimators)))
-    model.prune(X, Y, estimators)
+    model.prune(X, Y, estimators, cfg["classes"][i], cfg["n_classes"])
     return model
 
 def post(cfg, from_fit):
@@ -321,6 +321,7 @@ for dataset in args.dataset:
         pruneidx = []
 
         estimators = []
+        classes = []
         for itrain, itest in idx:
             if args.base == "RandomForestClassifier":
                 base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
@@ -332,7 +333,7 @@ for dataset in args.dataset:
                 base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier(max_depth = h),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
             else:
                 base_model = HeterogenousForest(base=ExtraTreesClassifier, n_estimators = args.n_estimators, depth = h, n_jobs = args.n_jobs)
-                
+            
             if args.use_prune:
                 XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
                 trainidx.append(tmp_train)
@@ -344,6 +345,7 @@ for dataset in args.dataset:
             testidx.append(itest)
             base_model.fit(XTrain, YTrain)
             estimators.append(copy.deepcopy(base_model.estimators_))
+            classes.append(base_model.classes_)
 
         experiment_cfg = {
             "dataset":dataset,
@@ -355,6 +357,8 @@ for dataset in args.dataset:
             "repetitions":args.xval,
             "seed":12345,
             "estimators":estimators,
+            "classes":classes,
+            "n_classes":len(set(Y)),
             "height":h,
             "base":args.base
         }
@@ -407,24 +411,24 @@ for dataset in args.dataset:
                             }
                         )
 
-                    for sr in [1.0,5e-1,1e-1,5e-2,1e-2,1e-3]:
-                        models.append(
-                            {
-                                "model":"ProxPruningClassifier",
-                                "model_params":{
-                                    "ensemble_regularizer":"L1",
-                                    "l_ensemble_reg":sr,
-                                    "l_tree_reg":reg,
-                                    "batch_size" : 32,
-                                    "epochs": 50,
-                                    "step_size": 1e-3,
-                                    "verbose":False,
-                                    "loss":loss,
-                                    "update_leaves":update_leaves
-                                },
-                                **experiment_cfg
-                            }
-                        )
+                    # for sr in [1.0,5e-1,1e-1,5e-2,1e-2,1e-3]:
+                    #     models.append(
+                    #         {
+                    #             "model":"ProxPruningClassifier",
+                    #             "model_params":{
+                    #                 "ensemble_regularizer":"L1",
+                    #                 "l_ensemble_reg":sr,
+                    #                 "l_tree_reg":reg,
+                    #                 "batch_size" : 32,
+                    #                 "epochs": 50,
+                    #                 "step_size": 1e-3,
+                    #                 "verbose":False,
+                    #                 "loss":loss,
+                    #                 "update_leaves":update_leaves
+                    #             },
+                    #             **experiment_cfg
+                    #         }
+                    #     )
     
 
 random.shuffle(models)
