@@ -38,10 +38,33 @@ def nice_name(row):
         # else:
         #     return "{} with {}".format(row["model"], "HF")
 
+def memory(row):
+    # Lets assume a native implementation with
+    #  - unsigned int left, right
+    #  - bool is_leaf
+    #  - unsinged int feature_idx
+    #  - float threshold
+    #  - float pred[n_classes]
+    #   ==> 4+4+1+4+4+4*n_classes = 17 + 4*n_classes
+    if row["dataset"] == "letter":
+        n_classes = 26
+    elif row["dataset"] == "thyroid":
+        n_classes = 3
+    elif row["dataset"] == "covtype":
+        n_classes = 7
+    elif row["dataset"] == "wine-quality":
+        n_classes = 6
+    elif row["dataset"] == "pen-digits":
+        n_classes = 10
+    else:
+        n_classes = 2
 
+    return row["scores.mean_n_nodes"] * (17 + 4*n_classes)  / 1024.0
+
+dataset = "multi"
 #dataset = "adult"
 #dataset = "bank"
-dataset = "connect"
+#dataset = "connect"
 #dataset = "covtype"
 #dataset = "dry-beans"
 #dataset = "eeg"
@@ -68,6 +91,7 @@ latest_folder = max(all_subdirs, key=os.path.getmtime)
 print("Reading {}".format(os.path.join(latest_folder, "results.jsonl")))
 df = read_jsonl(os.path.join(latest_folder, "results.jsonl"))
 df["nice_name"] = df.apply(nice_name, axis=1)
+df["KB"] = df.apply(memory, axis=1)
 
 df["accuracy"] = df["scores.mean_accuracy"]
 df["n_nodes"] = df["scores.mean_n_nodes"]
@@ -82,38 +106,116 @@ df["n_estimators"] = df["scores.mean_n_estimators"]
 #  - float threshold
 #  - float pred[n_classes]
 #   ==> 4+4+1+4+4+4*n_classes = 17 + 4*n_classes
-if dataset == "letter":
-    n_classes = 26
-elif dataset == "thyroid":
-    n_classes = 3
-elif dataset == "covtype":
-    n_classes = 7
-elif dataset == "wine-quality":
-    n_classes = 6
-elif dataset == "pen-digits":
-    n_classes = 10
-else:
-    n_classes = 2
-df["KB"] = df["scores.mean_n_nodes"] * (17 + 4*n_classes)  / 1024.0
+# if dataset == "letter":
+#     n_classes = 26
+# elif dataset == "thyroid":
+#     n_classes = 3
+# elif dataset == "covtype":
+#     n_classes = 7
+# elif dataset == "wine-quality":
+#     n_classes = 6
+# elif dataset == "pen-digits":
+#     n_classes = 10
+# else:
+#     n_classes = 2
+# df["KB"] = df["scores.mean_n_nodes"] * (17 + 4*n_classes)  / 1024.0
 
 df = df.round(decimals = 3)
-tabledf = df[["nice_name", "accuracy", "n_nodes", "fit_time", "n_estimators", "KB","height"]]
-#tabledf = tabledf.loc[tabledf["n_estimators"] < 100]
-# tabledf = tabledf.loc[tabledf["KB"] < 512]
-#tabledf = tabledf.loc[tabledf["height"] > 10]
+fdf = df.loc[df["n_estimators"] == 32]
+fdf = fdf.loc[fdf["height"] == 5]
+fdf = fdf.loc[fdf["dataset"] == "bank"]
+#fdf = df.loc[df["KB"] < 512]
 
+tabledf = fdf[["nice_name", "accuracy", "n_nodes", "fit_time", "n_estimators", "KB","height","dataset"]]
 tabledf = tabledf.sort_values(by=['accuracy'], ascending = False)
 print("Processed {} experiments".format(len(tabledf)))
 display(HTML(tabledf.to_html()))
 
 print("Best configuration per group")
-# print("Experiments per group")
-# print(tabledf.groupby(['nice_name'])['accuracy'].count())
-# idx = tabledf.groupby(['nice_name'])['accuracy'].transform(max) == tabledf['accuracy']
-# shortdf = tabledf[idx]
+#print(fdf.groupby(['model'])['accuracy'].count())
+idx = fdf.groupby(['model'])['accuracy'].transform(max) == fdf['accuracy']
+gdf = fdf[idx]
 
-# print("Best configuration per group")
-# display(HTML(shortdf.to_html()))
+tabledf = gdf[["nice_name", "accuracy", "n_nodes", "fit_time", "n_estimators", "KB","height","dataset"]]
+tabledf = tabledf.sort_values(by=['accuracy'], ascending = False)
+print("Best configuration per group")
+display(HTML(tabledf.to_html()))
+
+# %%
+
+fdf = df
+#fdf = df.loc[df["n_estimators"] == 4]
+#fdf = fdf.loc[fdf["height"] == 5]
+#fdf = df.loc[df["KB"] < 512]
+fdf = fdf.loc[(fdf["model_params.ensemble_regularizer"] == "hard-L1") | (fdf["model_params.ensemble_regularizer"] != "L1")]
+fdf = fdf.loc[(fdf["model_params.update_leaves"] != True) | (fdf["model_params.update_leaves"] == False)]
+
+#fdf = fdf.loc[fdf["dataset"] == "bank"]
+
+tmp = fdf.groupby(['model']).apply(lambda x: x.sort_values(['accuracy'], ascending=False))
+tmp = tmp.drop_duplicates(["dataset", "model"])
+tmp = tmp[["model", "accuracy", "dataset"]]
+# .sort_values('accuracy', ascending=False).
+# tmp = tmp[["model", "dataset", "accuracy"]]
+display(HTML(tmp.to_html()))
+tmp.to_csv("rankings.csv",index=False)
+#print(tmp)
+
+ranks = {}
+datasets = fdf["dataset"].unique()
+for d in datasets:
+    tdf = fdf.loc[fdf["dataset"] == d]
+    
+    #print(maxkb)
+    #tdf = tdf.loc[tdf["KB"] < 0.25 * max(tdf["KB"].values)]
+    gdf = tdf.sort_values('accuracy', ascending=False).drop_duplicates(['model'])
+    
+    #idx = tdf.groupby(['model'])['accuracy'].transform(max) == tdf['accuracy']
+    #gdf = tdf[idx].sort_values(by=['accuracy'], ascending = False)
+    
+    tabledf = gdf[["nice_name", "accuracy", "n_nodes", "fit_time", "n_estimators", "KB","height","dataset"]]
+    tabledf = tabledf.sort_values(by=['accuracy'], ascending = False)
+    print("Best configuration per group")
+    display(HTML(tabledf.to_html()))
+
+
+    for i, (_, row) in enumerate(gdf.iterrows()):
+        if row["model"] in ranks:
+            ranks[row["model"]].append(i+1)
+        else:
+            ranks[row["model"]] = [i+1]
+
+print(datasets)
+print(ranks)
+print("RANKS ARE")
+for m, r in ranks.items():
+    print("{}: {} +- {}".format(m, np.mean(r), np.std(r)))
+
+# %%
+print("IMPORT")
+import CriticalDifferenceDiagrams_jl as cdd # will take quite some time!
+import pandas as pd
+from wget import download
+print("IMPORT DONE")
+
+# we generate the above example from the underlying data
+download("https://raw.githubusercontent.com/hfawaz/cd-diagram/master/example.csv")
+df = pd.read_csv("example.csv")
+
+plot = cdd.plot(
+    df,
+    "classifier_name", # the name of the treatment column
+    "dataset_name",    # the name of the observation column
+    "accuracy",        # the name of the outcome column
+    maximize_outcome=True, # compute ranks for minimization (default) or maximization
+    title="CriticalDifferenceDiagrams.jl" # give an optional title
+)
+
+# configure the preamble of PGFPlots.jl (optional)
+cdd.pushPGFPlotsPreamble("\\usepackage{lmodern}")
+
+# export to .svg, .tex, or .pdf
+cdd.save("example.pdf", plot)
 
 # %%
 import matplotlib.pyplot as plt

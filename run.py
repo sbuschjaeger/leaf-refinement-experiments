@@ -105,7 +105,7 @@ parser.add_argument("-n", "--n_estimators", help="Number of estimators trained f
 parser.add_argument("-T", "--n_prune", help="Size of the pruned ensemble. Can be a list for multiple experiments.",nargs='+', type=int, default=[32])
 parser.add_argument("-x", "--xval", help="Number of X-val runs",type=int, default=5)
 parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split. If false, the training data is also used for pruning", action="store_true", default=True)
-parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=3600)
+parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=5400)
 args = parser.parse_args()
 
 if not args.base in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
@@ -328,9 +328,10 @@ for dataset in args.dataset:
                 base_model = ExtraTreesClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
             elif args.base == "BaggingClassifier":
                 # This pretty much fits a RF with max_features = None / 1.0
-                base_model = BaggingClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+                
+                base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier(max_depth = h),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
             else:
-                base_model = HeterogenousForest(base=RandomForestClassifier, n_estimators = args.n_estimators, depth = h, n_jobs = args.n_jobs)
+                base_model = HeterogenousForest(base=ExtraTreesClassifier, n_estimators = args.n_estimators, depth = h, n_jobs = args.n_jobs)
                 
             if args.use_prune:
                 XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
@@ -370,8 +371,9 @@ for dataset in args.dataset:
             }
         )
 
+        # "combined"
         for K in args.n_prune:
-            for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "combined", "drep"]:
+            for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "drep", "reduced_error", "individual_kappa_statistic", "RandomPruningClassifier"]:
                 models.append(
                     {
                         "model":m,
@@ -382,10 +384,11 @@ for dataset in args.dataset:
                     }
                 )
 
-        for loss in ["mse", "cross-entropy"]:
-            for update_leaves in [False, True]:
-                for K in args.n_prune:
-                    for reg in [1e-3,1e-4,1e-5,1e-6,0]:
+        for loss in ["mse"]:
+            for update_leaves in [True, False]: #True
+                for reg in [5e-5,1e-5,6e-5,1e-6,0]:
+                    for K in args.n_prune:
+                    #for reg in [0]:
                         models.append(
                             {
                                 "model":"ProxPruningClassifier",
@@ -394,8 +397,27 @@ for dataset in args.dataset:
                                     "l_ensemble_reg":K,
                                     "l_tree_reg":reg,
                                     "batch_size" : 32,
-                                    "epochs": 20,
-                                    "step_size": 1e-2,
+                                    "epochs": 50,
+                                    "step_size": 1e-3,
+                                    "verbose":False,
+                                    "loss":loss,
+                                    "update_leaves":update_leaves
+                                },
+                                **experiment_cfg
+                            }
+                        )
+
+                    for sr in [1.0,5e-1,1e-1,5e-2,1e-2,1e-3]:
+                        models.append(
+                            {
+                                "model":"ProxPruningClassifier",
+                                "model_params":{
+                                    "ensemble_regularizer":"L1",
+                                    "l_ensemble_reg":sr,
+                                    "l_tree_reg":reg,
+                                    "batch_size" : 32,
+                                    "epochs": 50,
+                                    "step_size": 1e-3,
                                     "verbose":False,
                                     "loss":loss,
                                     "update_leaves":update_leaves

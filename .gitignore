@@ -17,6 +17,7 @@ thyroid/results
 spambase/results
 gas-drift/results
 japanese-vowels/results
+multi/results
 eeg/results
 __pycache__
 *.data
