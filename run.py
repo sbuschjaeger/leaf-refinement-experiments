@@ -98,19 +98,19 @@ def post(cfg, from_fit):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-j", "--n_jobs", help="No of jobs for processing pool",type=int, default=1)
-parser.add_argument("-b", "--base", help="Base learner ued for experiments. Can be {{RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, HeterogenousForest}}",type=str, default="ExtraTreesClassifier")
+parser.add_argument("-b", "--base", help="Base learner ued for experiments. Can be {{RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, HeterogenousForest}}",type=str, nargs='+', default=["RandomForestClassifier"])
 parser.add_argument("--height", help="Maximum height of the trees. Corresponds to sci-kit learns max_depth parameter. Can be a list of arguments for multiple experiments. Important: Values <= 0 are interpreted as `None` (unlimited tree depth)", nargs='+', type=int)
-parser.add_argument("-d", "--dataset", help="Dataset used for experiments",type=str, default="bank", nargs='+')
+parser.add_argument("-d", "--dataset", help="Dataset used for experiments",type=str, default=["wine-quality"], nargs='+')
 parser.add_argument("-n", "--n_estimators", help="Number of estimators trained for the base learner.", type=int, default=64)
 parser.add_argument("-T", "--n_prune", help="Size of the pruned ensemble. Can be a list for multiple experiments.",nargs='+', type=int, default=[32])
 parser.add_argument("-x", "--xval", help="Number of X-val runs",type=int, default=5)
-parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split. If false, the training data is also used for pruning", action="store_true", default=True)
+parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split. If false, the training data is also used for pruning", action="store_true", default=False)
 parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=5400)
 args = parser.parse_args()
 
-if not args.base in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
-    print("Choose one of the following base learner: {{RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, HeterogenousForest}}")
-    exit(1)
+# if not args.base in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
+#     print("Choose one of the following base learner: {{RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, HeterogenousForest}}")
+#     exit(1)
 
 # if not args.dataset in ["magic", "covtype", "letter", "bank", "adult", "shuttle", "dry-beans", "eeg", "elec", "wine-quality", "thyroid", "pen-digits", "mushroom", "spambase", "satimage", "japanese-vowels", "gas-drift", "connect", "mozilla"]:
 #     print("You choose {} as a dataset. Please choose one of the following datasets: {{magic, covtype, letter, bank, adult, shuttle, dry-beans, eeg, elec, wine-quality, thyroid, pen-digits, mushroom, spambase, satimage, japanese-vowels, gas-drift, connect, mozilla}}".format(args.dataset))
@@ -125,8 +125,8 @@ if args.n_prune is None:
     args.n_prune = [32]
 
 if len(args.dataset) == 1:
-    outpath = args.dataset
-    args.dataset = [args.dataset]
+    outpath = args.dataset[0]
+    args.dataset = args.dataset
 else:
     outpath = "multi"
 
@@ -191,7 +191,7 @@ for dataset in args.dataset:
         df = pd.get_dummies(df)
         X = df.values
     elif dataset == "shuttle":
-        df = pd.read_csv(os.path.join(dataset, "shuttle.tst"), delimiter=" ")
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), delimiter=" ")
         Y = df.values[:,-1]
         Y = Y - min(Y)
         Y = np.array( [1 if y > 0 else 0 for y in Y] )
@@ -231,25 +231,21 @@ for dataset in args.dataset:
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif dataset == "mushroom":
-        df = pd.read_csv(os.path.join(dataset,"mushroom.csv"), header = 0, delimiter=",")
-        df = df.dropna()
-        label = df.pop("class")
-        le = LabelEncoder()
-        Y = le.fit_transform(label)
-        X = pd.get_dummies(df).values
-    elif dataset in ["eeg", "elec"]:
+    elif dataset in ["eeg", "elec", "nomao"]:
         if dataset == "eeg":
             data, meta = loadarff(os.path.join("eeg", "EEG Eye State.arff"))
-        else:
+        elif dataset == "elec":
             data, meta = loadarff(os.path.join("elec", "elecNormNew.arff"))
+        else:
+            data, meta = loadarff(os.path.join("nomao", "nomao.arff.txt"))
 
         Xdict = {}
         for cname, ctype in zip(meta.names(), meta.types()):
             # Get the label attribute for the specific dataset:
             #   eeg: eyeDetection
             #   elec: class
-            if cname in ["eyeDetection", "class"]:
+            #   nomao: Class
+            if cname in ["eyeDetection", "class",  "Class"]:
                 enc = LabelEncoder()
                 Xdict["label"] = enc.fit_transform(data[cname])
             else:
@@ -294,93 +290,102 @@ for dataset in args.dataset:
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
+    elif dataset == "mnist":
+        df = pd.read_csv(os.path.join(dataset,"data.csv"), header = 0, delimiter=",")
+        df = df.dropna()
+        label = df.values[:,0]
+        X = df.values[:,1:]
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
     else:
         exit(1)
 
-    scaler = MinMaxScaler()
-    X = scaler.fit_transform(X)
+    # scaler = MinMaxScaler()
+    # X = scaler.fit_transform(X)
     kf = StratifiedKFold(n_splits=args.xval, random_state=12345, shuffle=True)
     idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
 
     from collections import Counter
     print("Data: ", X.shape, " ", X[0:2,:])
     print("Labels: ", Y.shape, " ", Counter(Y))
+    # print("Data: ", X.shape)
     # print("Labels: ", Y.shape, " ", set(Y))
+    # print("")
+    # continue
 
     # HeterogenousForest requires a list of heights so pack it into another list
-    if args.base == "HeterogenousForest":
-        heights = [args.height]
-    else:
-        heights = args.height
+    for base in args.base:
+        # if base == "HeterogenousForest":
+        #     heights = [args.height]
+        # else:
+        #     heights = args.height
 
-    for h in heights:
-        print("Training initial {} with h = {}".format(args.base, h))
+        for h in args.height:
+            print("Training initial {} with h = {}".format(base, h))
 
-        trainidx = []
-        testidx = []
-        pruneidx = []
+            trainidx = []
+            testidx = []
+            pruneidx = []
 
-        estimators = []
-        classes = []
-        for itrain, itest in idx:
-            if args.base == "RandomForestClassifier":
-                base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
-            elif args.base == "ExtraTreesClassifier":
-                base_model = ExtraTreesClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
-            elif args.base == "BaggingClassifier":
-                # This pretty much fits a RF with max_features = None / 1.0
+            estimators = []
+            classes = []
+            for itrain, itest in idx:
+                if base == "RandomForestClassifier":
+                    base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+                elif base == "ExtraTreesClassifier":
+                    base_model = ExtraTreesClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+                elif base == "BaggingClassifier":
+                    # This pretty much fits a RF with max_features = None / 1.0
+                    base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier(max_depth = h),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
+                else:
+                    base_model = HeterogenousForest(base=DecisionTreeClassifier, n_estimators = args.n_estimators, max_depth = h, splitter = "random", bootstrap=True, n_jobs = args.n_jobs)
                 
-                base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier(max_depth = h),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
-            else:
-                base_model = HeterogenousForest(base=ExtraTreesClassifier, n_estimators = args.n_estimators, depth = h, n_jobs = args.n_jobs)
-            
-            if args.use_prune:
-                XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
-                trainidx.append(tmp_train)
-                pruneidx.append(tmp_prune)
-            else:
-                trainidx.append(itrain)
-                pruneidx.append(itrain)
-            
-            testidx.append(itest)
-            base_model.fit(XTrain, YTrain)
-            estimators.append(copy.deepcopy(base_model.estimators_))
-            classes.append(base_model.classes_)
+                if args.use_prune:
+                    XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
+                    trainidx.append(tmp_train)
+                    pruneidx.append(tmp_prune)
+                else:
+                    XTrain, YTrain = X[itrain], Y[itrain]
+                    trainidx.append(itrain)
+                    pruneidx.append(itrain)
+                
+                testidx.append(itest)
+                base_model.fit(XTrain, YTrain)
+                estimators.append(copy.deepcopy(base_model.estimators_))
+                classes.append(base_model.classes_)
 
-        experiment_cfg = {
-            "dataset":dataset,
-            "X":X,
-            "Y":Y,
-            "trainidx":trainidx,
-            "testidx":testidx,
-            "pruneidx":pruneidx,
-            "repetitions":args.xval,
-            "seed":12345,
-            "estimators":estimators,
-            "classes":classes,
-            "n_classes":len(set(Y)),
-            "height":h,
-            "base":args.base
-        }
-
-        np.random.seed(experiment_cfg["seed"])
-
-        models.append(
-            {
-                "model":args.base,
-                "model_params":{
-                    "n_estimators":args.n_estimators
-                },
-                **experiment_cfg
+            experiment_cfg = {
+                "dataset":dataset,
+                "X":X,
+                "Y":Y,
+                "trainidx":trainidx,
+                "testidx":testidx,
+                "pruneidx":pruneidx,
+                "repetitions":args.xval,
+                "seed":12345,
+                "estimators":estimators,
+                "classes":classes,
+                "n_classes":len(set(Y)),
+                "height":h,
+                "base":base
             }
-        )
 
-        # "combined"
-        for K in args.n_prune:
-            for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "drep", "reduced_error", "individual_kappa_statistic", "RandomPruningClassifier"]:
+            np.random.seed(experiment_cfg["seed"])
+
+            models.append(
+                {
+                    "model":base,
+                    "model_params":{
+                        "n_estimators":args.n_estimators
+                    },
+                    **experiment_cfg
+                }
+            )
+
+            for K in args.n_prune:
                 models.append(
                     {
-                        "model":m,
+                        "model":base,
                         "model_params":{
                             "n_estimators":K
                         },
@@ -388,47 +393,61 @@ for dataset in args.dataset:
                     }
                 )
 
-        for loss in ["mse"]:
-            for update_leaves in [True, False]: #True
-                for reg in [5e-5,1e-5,6e-5,1e-6,0]:
-                    for K in args.n_prune:
-                    #for reg in [0]:
-                        models.append(
-                            {
-                                "model":"ProxPruningClassifier",
-                                "model_params":{
-                                    "ensemble_regularizer":"hard-L1",
-                                    "l_ensemble_reg":K,
-                                    "l_tree_reg":reg,
-                                    "batch_size" : 32,
-                                    "epochs": 50,
-                                    "step_size": 1e-3,
-                                    "verbose":False,
-                                    "loss":loss,
-                                    "update_leaves":update_leaves
-                                },
-                                **experiment_cfg
-                            }
-                        )
+            # "combined"
+            for K in args.n_prune:
+                for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "drep", "reduced_error", "individual_kappa_statistic", "RandomPruningClassifier"]:
+                    models.append(
+                        {
+                            "model":m,
+                            "model_params":{
+                                "n_estimators":K
+                            },
+                            **experiment_cfg
+                        }
+                    )
 
-                    # for sr in [1.0,5e-1,1e-1,5e-2,1e-2,1e-3]:
-                    #     models.append(
-                    #         {
-                    #             "model":"ProxPruningClassifier",
-                    #             "model_params":{
-                    #                 "ensemble_regularizer":"L1",
-                    #                 "l_ensemble_reg":sr,
-                    #                 "l_tree_reg":reg,
-                    #                 "batch_size" : 32,
-                    #                 "epochs": 50,
-                    #                 "step_size": 1e-3,
-                    #                 "verbose":False,
-                    #                 "loss":loss,
-                    #                 "update_leaves":update_leaves
-                    #             },
-                    #             **experiment_cfg
-                    #         }
-                    #     )
+            for loss in ["mse"]:
+                for update_leaves in [False, True]: #True
+                    #for reg in [0]:
+                    for reg in [1e-5,5e-5,5e-6,1e-6,0]:
+                        for K in args.n_prune:
+                        #for reg in [0]:
+                            models.append(
+                                {
+                                    "model":"ProxPruningClassifier",
+                                    "model_params":{
+                                        "ensemble_regularizer":"hard-L1",
+                                        "l_ensemble_reg":K,
+                                        "l_tree_reg":reg,
+                                        "batch_size" : 128,
+                                        "epochs": 50,
+                                        "step_size": 1e-2, 
+                                        "verbose":False,
+                                        "loss":loss,
+                                        "update_leaves":update_leaves
+                                    },
+                                    **experiment_cfg
+                                }
+                            )
+
+                        # for sr in [1.0,5e-1,1e-1,5e-2,1e-2,1e-3]:
+                        #     models.append(
+                        #         {
+                        #             "model":"ProxPruningClassifier",
+                        #             "model_params":{
+                        #                 "ensemble_regularizer":"L1",
+                        #                 "l_ensemble_reg":sr,
+                        #                 "l_tree_reg":reg,
+                        #                 "batch_size" : 32,
+                        #                 "epochs": 50,
+                        #                 "step_size": 1e-3,
+                        #                 "verbose":False,
+                        #                 "loss":loss,
+                        #                 "update_leaves":update_leaves
+                        #             },
+                        #             **experiment_cfg
+                        #         }
+                        #     )
     
 
 random.shuffle(models)
