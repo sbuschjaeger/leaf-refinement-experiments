@@ -313,8 +313,14 @@ if plot:
         fig, ax = plt.subplots()
         ax.margins(0.05) # Optional, just adds 5% padding to the autoscaling
         for (name, group), marker in zip(groups, cycle(markers)):
-            ax.plot(group["rank_mean"], group["kb"], marker=marker, linestyle='', label=name)
+            ax.plot(group["rank_mean"], group["kb"], marker=marker, linestyle='', label=name) #, alpha=0.5, , dashes=[6, 2]
+        yticklabels = ["Unlimited" if kb == "None" else kb for kb in group["kb"].unique()] 
         
+        ax.set_yticklabels(yticklabels)
+        ax.set_ylabel("Memory constraints [KB]")
+        ax.set_xlabel("Average rank")
+        ax.yaxis.set_label_coords(-0.1,0.5)
+
         for i, kb in enumerate(clique_df.loc[ clique_df["base"] == b ]["kb"].unique()):
             cliques = clique_df.loc[ (clique_df["base"] == b) & (clique_df["kb"] == kb)]["cliques"]
             cliques = cliques.values[0]
@@ -394,7 +400,17 @@ if plot:
 
         ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1))
         ax.invert_xaxis()
-        ax.set_title("Rankings for base {}".format(b))
+        if b == "None":
+            ax.set_title("Rankings across all base ensembles")
+        else:
+            if b == "ExtraTreesClassifier":
+                ax.set_title("Rankings for ExtraTrees as base ensemble".format(b))
+            elif b == "RandomForestClassifier":
+                ax.set_title("Rankings for RandomForest as base ensemble".format(b))
+            else:
+                ax.set_title("Rankings for HeterogenousForest as base ensemble".format(b))
+
+
         plt.show()
 
     #rank_df.plot(kind="scatter", x = "rank_mean", y = "kb")
