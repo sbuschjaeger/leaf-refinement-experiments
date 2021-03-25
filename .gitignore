@@ -29,3 +29,6 @@ __pycache__
 *.tes
 *.tra
 *.tst
+*.pdf
+*.tex
+*.jl

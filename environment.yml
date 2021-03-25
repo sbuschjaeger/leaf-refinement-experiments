@@ -13,8 +13,8 @@ dependencies:
   - jupyter
   - gurobi
   - openpyxl
-  - pip:
-    - pip install -e file:PyPruning
-    - pip install -e file:experiment_runner
+  # - pip:
+  #   - pip install -e file:PyPruning
+  #   - pip install -e file:experiment_runner
     # - pip install git+ssh://git@github.com/sbuschjaeger/PyPruning.git
     # - pip install git+ssh://git@github.com/sbuschjaeger/experiment_runner.git
