@@ -1,11 +1,11 @@
 # Heterogeneous Ensemble Pruning
 
-This is the repository for the paper "Heterogeneous Ensemble Pruning". The repository is structed as the following:
+This is the repository for the paper "Heterogeneous Ensemble Pruning". The repository is structured as the following:
 
 - `PyPruning`: This repository contains the implementations for all pruning algorithms and can be installed as a regular python package and used in other projects. For more information have a look at the Readme file in `PyPruning/Readme.md` and its documentation in `PyPruning/docs`.
 - `experiment_runner`: This is a simple package / script which can be used to run multiple experiments in parallel on the same machine or distributed across many different machines. It can also be installed as a regular python package and used for other projects. For more information have a look at the Readme file in `experiment_runner/Readme.md`.
 - `{adult, bank, connect, ..., wine-quality}`: Each folder contains an script `init.sh` which downloads the necessary files and performs pre-processing if necessary (e.g. extract archives etc.). 
-- `init_all.sh`: Iterates over all datasets and calls the respetive `init.sh` files. Depending on your internet conection this may take some time
+- `init_all.sh`: Iterates over all datasets and calls the respective `init.sh` files. Depending on your internet connection this may take some time
 - `environment.yml`: Anaconda environment file which contains all dependencies. For more details see below
 - `HeterogenousForest.py`: This is the implementation of the Heterogenous Forest used as base ensemble. This implementation is based on scikit-learns. For more details check the source code.
 - `run.py`: The script which executes the experiments. For more details see the examples below.
