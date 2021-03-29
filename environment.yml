@@ -13,6 +13,8 @@ dependencies:
   - jupyter
   - gurobi
   - openpyxl
+  - pip:
+    - scikit_posthocs
   # - pip:
   #   - pip install -e file:PyPruning
   #   - pip install -e file:experiment_runner
