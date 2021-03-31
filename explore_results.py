@@ -29,8 +29,13 @@ def memory(row):
         - float pred[n_classes]
     ==> 4+4+1+4+4+4*n_classes = 17 + 4*n_classes
     '''
-    
-    if row["dataset"] == "connect":
+    if row["dataset"] == "anura":
+        n_classes = 10
+    elif row["dataset"] == "avila":
+        n_classes = 11
+    elif row["dataset"] == "cardiotocography":
+        n_classes = 10
+    elif row["dataset"] == "connect":
         n_classes = 3
     elif row["dataset"] == "covtype":
         n_classes = 7
@@ -44,12 +49,18 @@ def memory(row):
         n_classes = 26
     elif row["dataset"] == "mnist":
         n_classes = 10
+    elif row["dataset"] == "nursery":
+        n_classes = 3
     elif row["dataset"] == "pen-digits":
         n_classes = 10
+    elif row["dataset"] == "postures":
+        n_classes = 5
     elif row["dataset"] == "satimage":
         n_classes = 6
     elif row["dataset"] == "thyroid":
         n_classes = 3
+    elif row["dataset"] == "weight-lifting":
+        n_classes = 5
     elif row["dataset"] == "wine-quality":
         n_classes = 7
     else:
@@ -152,10 +163,9 @@ import scikit_posthocs as sp
 from functools import partial
 
 # Set the theme for plotting and how to process the results.
-#   - plot: if plot is true the plots from the paper are created, displayed and stored in pdf files. If this is false, tables are displayed via `display`. This will likely only work well for Jupyter / VSCode 
+#   - plot: if plot is true the plots from the paper are created, displayed and stored in pdf files. If this is false, tables are exported as HTML
 #   - split_hep: If true, the HEP is splitted into HEP and HEP-LR (as done for Q2 in the paper) 
 #   - split_lambda: If true, the HEP is splitted into the various lambda values used during the experiments (as done for Q3 in the paper) 
-# Note that in all cases the raw results are also printed as *.tex files to the appendix.
 
 plt.style.use('seaborn-whitegrid')
 plot = False
@@ -285,7 +295,6 @@ for kb in [16,32,64,128,256,512,None]:
                 print("No statistical difference found. Exiting")
                 break
         else:
-            dff.style.apply(highlight,axis=1)
             dff.to_html("{}_{}.html".format(b, kb), index=False)
             # Just display the results without any plotting
             #display( dff.style.apply(highlight,axis=1) )
@@ -382,7 +391,7 @@ if plot:
             else:
                 ax.set_title("Rankings for HeterogenousForest as base ensemble".format(b))
 
-        fig.savefig("ranks_{}{}{}.pdf".format(b,"_heplr" if split_hep else "", "_heponly" if split_lambda else ""), bbox_inches='tight')
+        fig.savefig("ranks_{}{}{}.pdf".format("Combined" if b == "None" else b ,"_heplr" if split_hep else "", "_heponly" if split_lambda else ""), bbox_inches='tight')
         plt.show()
 
 print("DONE")
