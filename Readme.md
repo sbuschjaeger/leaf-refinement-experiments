@@ -67,7 +67,7 @@ The results are stored in `${Dataset}/results/${date}/results.jsonl` where `${Da
 
 In order to re-produce the experiments form the paper you can call:
 
-    ./run.py -d adult bank connect covtype dry-beans eeg elec gas-drift japanese-vowels letter magic mozilla nomao pen-digits satimage shuttle spambase thyroid wine-quality --base RandomForestClassifier ExtraTreesClassifier HeterogenousForest --height 4 8 16 -n 256 -T 4 8 16 32 -j 128 --use_prune
+    ./run.py -d adult bank connect covtype dry-beans eeg elec gas-drift japanese-vowels letter magic mnist mozilla nomao pen-digits satimage shuttle spambase thyroid wine-quality --base RandomForestClassifier ExtraTreesClassifier HeterogenousForest --height 4 8 16 -n 256 -T 4 8 16 32 -j 128 --use_prune
 
 **Important:** This call uses 128 threads and requires a decent (something in the range of 64GB) amount of memory to work. 
 

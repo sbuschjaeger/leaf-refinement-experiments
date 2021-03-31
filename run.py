@@ -105,7 +105,7 @@ parser.add_argument("-n", "--n_estimators", help="Number of estimators trained f
 parser.add_argument("-T", "--n_prune", help="Size of the pruned ensemble. Can be a list for multiple experiments.",nargs='+', type=int, default=[32])
 parser.add_argument("-x", "--xval", help="Number of X-val runs",type=int, default=5)
 parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split. If false, the training data is also used for pruning", action="store_true", default=False)
-parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=5400)
+parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=6000)
 args = parser.parse_args()
 
 # if not args.base in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
@@ -231,13 +231,16 @@ for dataset in args.dataset:
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
-    elif dataset in ["eeg", "elec", "nomao"]:
+    elif dataset in ["eeg", "elec", "nomao", "polish-bankruptcy"]:
         if dataset == "eeg":
             data, meta = loadarff(os.path.join("eeg", "EEG Eye State.arff"))
         elif dataset == "elec":
             data, meta = loadarff(os.path.join("elec", "elecNormNew.arff"))
-        else:
+        elif dataset == "nomao":
             data, meta = loadarff(os.path.join("nomao", "nomao.arff.txt"))
+        else:
+            # For nor special reason we focus on bankrupcty prediction after 1 year. Other values would also be okay
+            data, meta = loadarff(os.path.join("polish-bankruptcy", "1year.arff"))
 
         Xdict = {}
         for cname, ctype in zip(meta.names(), meta.types()):
@@ -245,6 +248,7 @@ for dataset in args.dataset:
             #   eeg: eyeDetection
             #   elec: class
             #   nomao: Class
+            #   polish-bankruptcy: class
             if cname in ["eyeDetection", "class",  "Class"]:
                 enc = LabelEncoder()
                 Xdict["label"] = enc.fit_transform(data[cname])
@@ -252,6 +256,7 @@ for dataset in args.dataset:
                 Xdict[cname] = data[cname]
         df = pd.DataFrame(Xdict)
         df = pd.get_dummies(df)
+        df.dropna(axis=1, inplace=True)
         Y = df["label"].values.astype(np.int32)
         df = df.drop("label", axis=1)
 
@@ -290,6 +295,14 @@ for dataset in args.dataset:
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
+    elif dataset == "occupancy":
+        df = pd.read_csv(os.path.join(dataset,"data.csv"), header = 0, delimiter=",")
+        df = df.dropna()
+        label = df.pop("Occupancy")
+        df.pop("date")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
     elif dataset == "mnist":
         df = pd.read_csv(os.path.join(dataset,"data.csv"), header = 0, delimiter=",")
         df = df.dropna()
@@ -297,6 +310,85 @@ for dataset in args.dataset:
         X = df.values[:,1:]
         le = LabelEncoder()
         Y = le.fit_transform(label)
+    elif dataset == "avila":
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), header=None)
+        df = df.dropna()
+        X = df.values[:,:-1].astype(np.float64)
+        label = df.values[:,-1]
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+    elif dataset == "weight-lifting":
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), skiprows=2)
+        df = df.dropna(axis=1)
+
+        # There is not documentation on these values on UCI, only that statistics are computed in a 1 second window. I assume that these attributes are required to compute the statistics, but should not be part of the ML problem. I am just ignoring those. Lets see.
+        df.pop("user_name")
+        df.pop("raw_timestamp_part_1")
+        df.pop("raw_timestamp_part_2")
+        df.pop("cvtd_timestamp")
+        df.pop("new_window")
+        df.pop("num_window")
+        label = df.pop("classe")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "ida2016":
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), skiprows=20,na_values="na")
+        df = df.fillna(-1)
+        label = df.pop("class")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "postures":
+        df = pd.read_csv(os.path.join(dataset, "Postures.csv"), na_values="?")
+        df = df.dropna(axis=1)
+        # Skip the first row which contains an "empty" measruments. Its the only one with class 0
+        df = df.iloc[1:]
+        df.pop("User")
+        label = df.pop("Class")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "anura":
+        df = pd.read_csv(os.path.join(dataset, "Frogs_MFCCs.csv"), header=0)
+        df = df.dropna(axis=1)
+        df.pop("RecordID")
+        df.pop("Family")
+        df.pop("Genus")
+        label = df.pop("Species")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "shill":
+        df = pd.read_csv(os.path.join(dataset, "Shill Bidding Dataset.csv"), header=0)
+        df = df.dropna(axis=1)
+        df.pop("Record_ID")
+        df.pop("Auction_ID")
+        df.pop("Bidder_ID")
+        label = df.pop("Class")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "cardiotocography":
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), header=0)
+        df = df.dropna(axis=1)
+        label = df.pop("Class")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "nursery":
+        df = pd.read_csv(os.path.join(dataset, "nursery.data"), header=None)
+        df = df.dropna(axis=1)
+        df = df.iloc[:,:-1]
+        label = df.iloc[:,-1]
+        # From the documentation there should be 5 classes not_recom, recommend, very_recom, priority, spec_prior. But the data we got only seems to contain 3 classes
+        # print(label.unique())
+        #label.replace("recommend", "very_recom", inplace=True)
+        # print(label.unique())
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        df = pd.get_dummies(df)
+        X = df.values
     else:
         exit(1)
 
@@ -308,10 +400,11 @@ for dataset in args.dataset:
     from collections import Counter
     print("Data: ", X.shape, " ", X[0:2,:])
     print("Labels: ", Y.shape, " ", Counter(Y))
+    # exit(1)
     # print("Data: ", X.shape)
     # print("Labels: ", Y.shape, " ", set(Y))
     # print("")
-    # continue
+    #continue
 
     # HeterogenousForest requires a list of heights so pack it into another list
     for base in args.base:
@@ -395,7 +488,7 @@ for dataset in args.dataset:
 
             # "combined"
             for K in args.n_prune:
-                for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance", "drep", "reduced_error", "individual_kappa_statistic", "RandomPruningClassifier"]:
+                for m in ["individual_margin_diversity", "individual_contribution", "individual_error", "individual_kappa_statistic", "reduced_error", "complementariness", "margin_distance",  "RandomPruningClassifier", "reference_vector", "error_ambiguity"]:
                     models.append(
                         {
                             "model":m,
@@ -405,6 +498,20 @@ for dataset in args.dataset:
                             **experiment_cfg
                         }
                     )
+
+            rho = [0.25,0.3,0.35,0.4,0.45,0.5]
+            for K in args.n_prune:
+                for r in rho:
+                    models.append(
+                        {
+                            "model":"drep",
+                            "model_params":{
+                                "n_estimators":K,
+                                "rho": r
+                            },
+                            **experiment_cfg
+                        }
+                    ) 
 
             for loss in ["mse"]:
                 for update_leaves in [False, True]: #True

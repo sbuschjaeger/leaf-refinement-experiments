@@ -1,0 +1,5 @@
+#/bin/bash
+
+wget https://archive.ics.uci.edu/ml/machine-learning-databases/00273/Example_WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv
+
+mv Example_WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv data.csv

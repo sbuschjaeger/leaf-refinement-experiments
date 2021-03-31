@@ -101,6 +101,10 @@ def nice_name(row, split_hep = False, split_lambda = False):
         return "RE"
     elif row["model"] == "HeterogenousForest":
         return "HF"
+    elif row["model"] == "reference_vector":
+        return "RV"
+    elif row["model"] == "error_ambiguity":
+        return "EA"
     else:
         return row["model"]
 
@@ -139,19 +143,6 @@ def highlight(s):
             style.append('')
     return style
 
-# Select the dataset which should be plotted and navigate to the youngest folder
-# If you have another folder-structure you can comment out this code and simply set latest_folder to the correct path
-dataset = "multi"
-dataset = os.path.join(dataset, "results")
-all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
-latest_folder = max(all_subdirs, key=os.path.getmtime)
-print("Reading {}".format(os.path.join(latest_folder, "results.jsonl")))
-
-# Read the file 
-df = read_jsonl(os.path.join(latest_folder, "results.jsonl"))
-print("Reading done")
-
-
 # %%
 
 import matplotlib.pyplot as plt
@@ -168,8 +159,21 @@ from functools import partial
 
 plt.style.use('seaborn-whitegrid')
 plot = True
-split_hep = False
-split_lambda = False
+split_hep = True
+split_lambda = True
+
+# Select the dataset which should be plotted and navigate to the youngest folder
+# If you have another folder-structure you can comment out this code and simply set latest_folder to the correct path
+# If you ran experiments on multiple datasets the corresponding folder is called "multi" 
+dataset = "multi"
+dataset = os.path.join(dataset, "results")
+all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
+latest_folder = max(all_subdirs, key=os.path.getmtime)
+print("Reading {}".format(os.path.join(latest_folder, "results.jsonl")))
+
+# Read the file 
+df = read_jsonl(os.path.join(latest_folder, "results.jsonl"))
+print("Reading done")
 
 # Compute nicer model names and the memory consumption
 df["model"] = df.apply(partial(nice_name, split_hep = split_hep, split_lambda = split_lambda), axis=1)
@@ -223,7 +227,8 @@ for kb in [16,32,64,128,256,512,None]:
         tabledf = dff.pivot_table(["KB", "accuracy", "rank"] , ['dataset'], 'model')
         tabledf = tabledf.reorder_levels([1,0], axis=1).sort_index(axis=1).reindex(["accuracy", "KB", "rank"], level=1, axis=1)
         tabledf.fillna(0, inplace=True)
-        tabledf.to_latex(buf="raw_{}_{}.tex".format(b,kb),index=False, float_format="%.3f")
+        
+        tabledf.to_latex(buf="raw_{}_{}{}{}.tex".format(b,kb,"_heplr" if split_hep else "", "_heponly" if split_lambda else ""),index=False, float_format="%.3f")
 
         if plot:
             # Prepare ranks for the friedman test. 
@@ -245,7 +250,7 @@ for kb in [16,32,64,128,256,512,None]:
                 adj = tmp.values
                 adj[adj > pval] = 1.0
                 adj[adj <= pval] = 0.0
-                cur_cliques = []
+                final_cliques = []
                 for i, mi in enumerate(m_order):
                     clique = []
                     for j, mj in enumerate(m_order):
@@ -254,29 +259,7 @@ for kb in [16,32,64,128,256,512,None]:
                         elif adj[i][j] == 1.0:
                             clique.append(mj)
                     
-                    cur_cliques.append(clique)
-
-                # Extract the maximum cliques. Please dont look at this code too closely. 
-                # My prof for data structure, algorithms and programming I and II would probably feel very bad about this code
-                # and I do too. But it was late, I was lazy and it works
-                final_cliques = cur_cliques
-                to_remove = []
-                while True: #not removed
-                    for f1 in range(len(final_cliques)):
-                        for f2 in range(f1 + 1, len(final_cliques)):
-                            if final_cliques[f1] == final_cliques[f2] and final_cliques[f1] in final_cliques:
-                                to_remove.append(f2)
-                            else:
-                                if set(final_cliques[f2]).issubset(final_cliques[f1]):
-                                    to_remove.append(f2)
-                                if set(final_cliques[f1]).issubset(final_cliques[f2]):
-                                    to_remove.append(f1)
-                    if len(to_remove) == 0:
-                        break
-                    else:
-                        # print("removing ", to_remove)
-                        final_cliques = [c for i, c in enumerate(final_cliques) if i not in to_remove]
-                        to_remove = []
+                    final_cliques.append(clique)
 
                 cliques.append(
                     {
@@ -328,14 +311,12 @@ if plot:
         ax.yaxis.set_label_coords(-0.1,0.5)
 
         # Plot every "level" / memory constraint
-        for i, kb in enumerate(clique_df.loc[ clique_df["base"] == b ]["kb"].unique()):
+        for level, kb in enumerate(clique_df.loc[ clique_df["base"] == b ]["kb"].unique()):
             cliques = clique_df.loc[ (clique_df["base"] == b) & (clique_df["kb"] == kb)]["cliques"]
             cliques = cliques.values[0]
             
-            x_lines = []
-            y_lines = []
-            offset = 0
-            x_limits = None
+            # Store each clique in x_cliques. Make sure to not store cliques twice
+            x_cliques = []
             for clique in cliques:
                 c_ranks = []
                 for c in clique:
@@ -346,48 +327,45 @@ if plot:
                             (rank_df["kb"] == str(kb))
                         ]["rank_mean"].values[0]
                     )
+                
+                c = [min(c_ranks), max(c_ranks)]
+                if c not in x_cliques:
+                    x_cliques.append(c)
 
-                ybase = i
-
-                # Make sure that lines do not overlapp during plotting by adjusting the y-values a bit
-                if (min(c_ranks) != max(c_ranks)):
-                    for x in x_lines:
-                        if (x[1] >= min(c_ranks) and x[0] <= min(c_ranks)) or (x[0] <= max(c_ranks) and x[1] >= max(c_ranks)):
-                            ybase -= 0.1
-
-                    x_lines.append([min(c_ranks), max(c_ranks)])
-                    #x_lines.append([min(c_ranks), min(c_ranks)])
-                    #x_lines.append([max(c_ranks), max(c_ranks)])
-
-                    y_lines.append([ybase - 0.25, ybase - 0.25])
-                    #y_lines.append([ybase - 0.25, i - 0.1])
-                    #y_lines.append([ybase - 0.25, i - 0.1])
-                else:
-                    x_lines.append([min(c_ranks) - 0.05, max(c_ranks) + 0.05])
-                    y_lines.append([ybase - 0.25, ybase - 0.25])
-
-            # Sometimes cliques are non overlapping even though they actually are. This can happen due to the
-            # p-calibration in the wilcoxon test. So we double check if a clique is already contained in a larger clique
-            # and only plot the larger one
-            final_xlines = []
-            final_ylines = []
-            for i in range(len(x_lines)):
-                xi = x_lines[i]
+            # Sometimes cliques are non overlapping even though they actually are. This can happen due to the p-calibration in the wilcoxon test. So we double check if a clique is already contained in a larger clique and only plot the larger one. 
+            # Also make sure that each clique has a width of at-least 0.3 for visual appeal
+            x_cliques = sorted(x_cliques, key = lambda x : x[0], reverse=True)
+            final_y = []
+            final_x = []
+            for i in range(len(x_cliques)):
+                xi = x_cliques[i]
                 keep = True
-                for j in range(len(x_lines)):
-                    xj = x_lines[j]
-                    if i != j and min(xi) >= min(xj) and max(xi) <= max(xj):
-                        keep = False
-                        break
+                for j in range(len(x_cliques)):
+                    xj = x_cliques[j]
+                    if min(xi) != min(xj) or max(xi) != max(xj):
+                        if min(xi) >= min(xj) and max(xi) <= max(xj):
+                            keep = False
+                            break
                 if keep:
-                    final_xlines.append(x_lines[i])
-                    final_ylines.append(y_lines[i])
+                    # make sure that each clique has a width of at-least 0.3
+                    if x_cliques[i][1] - x_cliques[i][0] < 0.3:
+                        final_x.append([x_cliques[i][0] - 0.15, x_cliques[i][1] + 0.15])
+                    else:
+                        final_x.append(x_cliques[i])
+
+            # Adapt the y-axis accordingly. Whenever two cliques overlap move it -0.1 on the y-axis
+            for i in range(len(final_x)):
+                yi = level - 0.2
+                xi = final_x[i]
+                for j in range(0, i):
+                    xj = final_x[j]
+                    if min(xi) <= min(xj) and max(xi) <= max(xj) and min(xj) <= max(xi):
+                        yi -= 0.1
+                final_y.append([yi, yi])
 
             # Finally, plot everything
-            for x,y in zip(final_xlines, final_ylines):
+            for x,y in zip(final_x, final_y):
                 plt.plot(x, y, color="black")
-            #print(x_lines)
-            #print(cliques)
 
         # Include the legend and title. Finally store the pdf
         ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1))
@@ -402,7 +380,7 @@ if plot:
             else:
                 ax.set_title("Rankings for HeterogenousForest as base ensemble".format(b))
 
-        fig.savefig("ranks_{}.pdf".format(b), bbox_inches='tight')
+        fig.savefig("ranks_{}{}{}.pdf".format(b,"_heplr" if split_hep else "", "_heponly" if split_lambda else ""), bbox_inches='tight')
         plt.show()
 
 print("DONE")
