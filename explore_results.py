@@ -158,7 +158,7 @@ from functools import partial
 # Note that in all cases the raw results are also printed as *.tex files to the appendix.
 
 plt.style.use('seaborn-whitegrid')
-plot = True
+plot = False
 split_hep = True
 split_lambda = True
 
@@ -207,7 +207,7 @@ for kb in [16,32,64,128,256,512,None]:
             ]
         
         # For Q3 only select HEP-related methods
-        if split_lambda:
+        if split_lambda and plot:
             dff = dff.loc[
                 dff["model"].str.contains("HEP") 
             ]
@@ -285,8 +285,10 @@ for kb in [16,32,64,128,256,512,None]:
                 print("No statistical difference found. Exiting")
                 break
         else:
+            dff.style.apply(highlight,axis=1)
+            dff.to_html("{}_{}.html".format(b, kb), index=False)
             # Just display the results without any plotting
-            display( dff.style.apply(highlight,axis=1) )
+            #display( dff.style.apply(highlight,axis=1) )
 
 if plot:
     # prepare the data frames for plotting

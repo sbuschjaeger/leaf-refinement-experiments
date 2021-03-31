@@ -33,3 +33,4 @@ __pycache__
 *.tex
 *.jl
 *.trn
+*.html
