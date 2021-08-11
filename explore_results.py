@@ -116,6 +116,16 @@ def nice_name(row, split_hep = False, split_lambda = False):
         return "RV"
     elif row["model"] == "error_ambiguity":
         return "EA"
+    elif row["model"] == "largest_mean_distance":
+        return "LMD"
+    elif row["model"] == "cluster_accuracy":
+        return "CA"
+    elif row["model"] == "cluster_centroids":
+        return "CC"
+    elif row["model"] == "combined_error":
+        return "CE"
+    elif row["model"] == "combined":
+        return "comb,"
     else:
         return row["model"]
 
@@ -170,8 +180,10 @@ from functools import partial
 plt.style.use('seaborn-whitegrid')
 plot = False
 split_hep = True
-split_lambda = True
-
+split_lambda = False
+#base_learners = ["RandomForestClassifier", "ExtraTreesClassifier", "HeterogenousForest", None]
+base_learners = ["RandomForestClassifier", "HeterogenousForest"]
+memory_constraints = [16,32,64,128,256,512,None]
 # Select the dataset which should be plotted and navigate to the youngest folder
 # If you have another folder-structure you can comment out this code and simply set latest_folder to the correct path
 # If you ran experiments on multiple datasets the corresponding folder is called "multi" 
@@ -202,9 +214,9 @@ pval = 0.05
 cliques = []
 
 # Over all constraints
-for kb in [16,32,64,128,256,512,None]:
+for kb in memory_constraints:
     # Over all base learners
-    for b in ["RandomForestClassifier", "ExtraTreesClassifier", "HeterogenousForest", None]:
+    for b in base_learners:
         dff = df.copy()
         
         # Filter for a specific base learner, but keep RF / ET / HF as well
@@ -296,8 +308,7 @@ for kb in [16,32,64,128,256,512,None]:
                 break
         else:
             dff.to_html("{}_{}.html".format(b, kb), index=False)
-            # Just display the results without any plotting
-            #display( dff.style.apply(highlight,axis=1) )
+            display( dff.sort_values(["dataset", "accuracy"], ascending=False) )
 
 if plot:
     # prepare the data frames for plotting

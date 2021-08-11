@@ -75,8 +75,8 @@ In order to re-produce the experiments form the paper you can call:
 
 After you run the experiments you can view the results with the `explore_results.py` script. We recommend to use an interactive Python environment for that such as Jupyter or VSCode with the ability to execute cells, but you should also be able to run this script as-is. This script is fairly well-commented, so please have a look at it for more detailed comments. To change the behavior of it you can adapt the following variables:
 
-`dataset`(line 144): The dataset to be plotted, e.g. `magic` or `multi`
-`plot` (line 170): If `true` then the plots from the paper are created. If `false` the raw ranks are displayed
-`split_hep` (line 171): If `true` then the HEP method is split into HEP and HEP-LR as done in paper for Q2 and Q3
-`split_lambda` (line 172): If `true` then the HEP method is split into the various lambda values as done for Q3
-`pval` (line 187): The p-value used for the statistical tests (default is `0.05`)
+- `dataset`(line 144): The dataset to be plotted, e.g. `magic` or `multi`
+- `plot` (line 170): If `true` then the plots from the paper are created. If `false` the raw ranks are displayed
+- `split_hep` (line 171): If `true` then the HEP method is split into HEP and HEP-LR as done in paper for Q2 and Q3
+- `split_lambda` (line 172): If `true` then the HEP method is split into the various lambda values as done for Q3
+- `pval` (line 187): The p-value used for the statistical tests (default is `0.05`)
