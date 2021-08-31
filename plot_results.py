@@ -108,12 +108,12 @@ def nice_name(row):
     else:
         return row["model"]
 
-def read_data(dataset):
+def read_data(base, dataset):
     # Select the dataset which should be plotted and navigate to the youngest folder
     # If you have another folder-structure you can comment out this code and simply set latest_folder to the correct path
     # If you ran experiments on multiple datasets the corresponding folder is called "multi" 
 
-    dataset = os.path.join(dataset, "results")
+    dataset = os.path.join(dataset, "results", "base")
     all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
     latest_folder = max(all_subdirs, key=os.path.getmtime)
     print("Reading {}".format(os.path.join(latest_folder, "results.jsonl")))
@@ -152,17 +152,29 @@ The `read_data' function will load the latest results from the sub-folder. The r
 overlap so the plot does not look nice. Hence, we decided to filter for [1024, 512, 256, 128, 64] leaf nodes. 
 """
 datasets = [
-    "gas-drift",
-    "bank","connect",
-    "eeg", "mozilla", "magic", "nomao",  
-    "occupancy", "pen-digits",
-    "postures", "satimage", "anura","adult"
+    "adult",
+    "connect",
+    "chess",
+    "anura",
+    "bank",
+    "eeg",
+    "elec",
+    "postures",
+    "japanese-vowels",
+    "magic",
+    "mozilla",
+    "mnist",
+    "nomao",
+    "avila",
+    "ida2016",
+    "satimage"
 ]
 
+base = "RandomForestClassifier"
 show = False
 for d in datasets:
     #dataset = "magic" # dataset to be plotted
-    df = read_data(d)
+    df = read_data(base, d)
     max_leaves_to_plot = [1024, 512, 256, 128, 64] #4096,2048 
     models_to_plot = ["RE", "RF"] # methods to be compared 
     names = []
@@ -185,23 +197,36 @@ for d in datasets:
     plt.ylabel("Accuracy")
     if show:
         plt.show()
-    fig.savefig("revisited_{}.pdf".format(d), bbox_inches='tight')
+    fig.savefig("{}_{}_revisited.pdf".format(base,d), bbox_inches='tight')
 
 # %%
 """
 Compute the table for all accuracies of the different methods in the first experiment. Again, the dataset can be set via the `dataset` variable. Since this table would become to big for all experiments we now filter for `n_estimators` and `max_leaf_nodes`
 """
 datasets = [
-    "gas-drift",
-    "bank","connect",
-    "eeg", "mozilla", "magic", "nomao",  
-    "occupancy", "pen-digits",
-    "postures", "satimage", "anura","adult"
+    "adult",
+    "connect",
+    "chess",
+    "anura",
+    "bank",
+    "eeg",
+    "elec",
+    "postures",
+    "japanese-vowels",
+    "magic",
+    "mozilla",
+    "mnist",
+    "nomao",
+    "avila",
+    "ida2016",
+    "satimage"
 ]
+
+base = "RandomForestClassifier"
 show = False
 
 for d in datasets:
-    df = read_data(d)
+    df = read_data(base,d)
 
     max_leaves_to_table = [1024, 512, 256, 128, 64] #[16, 32, 64, 128, 2048]
     n_estimators = [8, 16, 32, 64, 128]
@@ -216,7 +241,7 @@ for d in datasets:
     dff = dff.drop_duplicates(["model","max_leaf_nodes","n_estimators"], keep="last")
 
     pdf = dff.pivot_table(index=["max_leaf_nodes","n_estimators"], values="test_accuracy", columns = ["model"])
-    pdf.round(2).to_latex("{}_revisited.tex".format(d))
+    pdf.round(2).to_latex("{}_{}_revisited.tex".format(base,d))
     if show:
         display(pdf.round(2))
         print(pdf.round(2).to_latex())
@@ -225,6 +250,8 @@ for d in datasets:
 import scipy
 
 def get_pareto(df, columns):
+    ''' Computes the pareto front of the given columns in the given dataframe. Returns results as a dataframe.
+    '''
     first = df[columns[0]].values
     second = df[columns[1]].values
 
@@ -250,34 +277,25 @@ def get_pareto(df, columns):
     return df.iloc[population_ids[pareto_front]]
 
 datasets = [
-    "connect",
-    "eeg",
-    "postures",  
-    "mnist",
-    "elec", 
-    "chess",
-    # ----
-    "avila",
-    #"weight-lifting",
-    #"gas-drift",
-    #"occupancy",
-    #"pen-digits",
-    #"wine-quality",
-    "japanese-vowels",
-    "bank",
-    "nomao",  
-    "magic",
-    "anura",
     "adult",
-    #"dry-beans", 
-    "satimage",
+    "connect",
+    "chess",
+    "anura",
+    "bank",
+    "eeg",
+    "elec",
+    "postures",
+    "japanese-vowels",
+    "magic",
     "mozilla",
+    "mnist",
+    "nomao",
+    "avila",
     "ida2016",
-    #"thyroid", 
-    #"weather",
-    #"letter",
-    #"dota2"
+    "satimage"
 ]
+
+base = "RandomForestClassifier"
 
 max_leaf_nodes = [64, 128, 256, 512, 1024]
 show = False
@@ -287,7 +305,7 @@ styles = ["-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-.", ":",]
 aucs = []
 
 for d in datasets:
-    dff = read_data(d)
+    dff = read_data(base,d)
     #dff["test_accuracy"] = dff["test_accuracy"].round(1)
 
     #dff = dff.loc[dff["KB"] < 1000]
@@ -338,9 +356,9 @@ tabledf = pd.DataFrame(aucs)
 # tabledf["AUC norm"] = tabledf["AUC"] / ref_auc
 #tabledf["AUC norm"] = tabledf["AUC"] / max_kb
 tabledf.sort_values(by=["dataset","AUC"], inplace = True, ascending=False)
-tabledf.to_csv("aucs.csv",index=False)
+tabledf.to_csv("aucs_{}.csv".format(base),index=False)
 
-tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4).to_latex("aucs.tex")
+tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4).to_latex("aucs_{}.tex".format(base))
 #if show:
 display(tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4))
 # %%

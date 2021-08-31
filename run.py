@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+#SKLearn sometimes throws warnings due to n_jobs not being supported in the future for KMeans. Just ignore them for now
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 from datasets import get_dataset
 import sys
 import os
