@@ -34,10 +34,10 @@ from sklearn.preprocessing import MinMaxScaler
 from experiment_runner.experiment_runner import run_experiments, Variation, generate_configs
 
 from PyPruning.RandomPruningClassifier import RandomPruningClassifier
-from PyPruning.ProxPruningClassifier import ProxPruningClassifier
 from PyPruning.PruningClassifier import PruningClassifier 
 from PyPruning.Papers import create_pruner 
-from HeterogenousForest import HeterogenousForest
+
+from LeafRefinement import LeafRefinement
 
 # As a baseline we also want to evaluate the unpruned classifier. To use the
 # same code base below we implement a NotPruningPruner which does not prune at all
@@ -53,14 +53,14 @@ class NotPruningPruner(PruningClassifier):
         return range(0, n_received), [1.0 / n_received for _ in range(n_received)]
 
 def pre(cfg):
-    if cfg["model"] in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier", "HeterogenousForest"]:
+    if cfg["model"] in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier"]:
     #    model_ctor = NotPruningPruner
     #elif cfg["model"] == "RandomPruningClassifier":
         model_ctor = RandomPruningClassifier
     elif cfg["model"] == "AdaBoostClassifier":
         model_ctor = AdaBoostClassifier
-    elif cfg["model"] == "ProxPruningClassifier":
-        model_ctor = ProxPruningClassifier
+    elif cfg["model"] == "LeafRefinement":
+        model_ctor = LeafRefinement
     else:
         model_ctor = partial(create_pruner, method = cfg["model"]) 
 
@@ -124,7 +124,7 @@ def main(args):
 
         if args.n_jobs == 1:
             basecfg = {
-                "out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
+                #"out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
                 "pre": pre,
                 "post": post,
                 "fit": fit,
@@ -134,7 +134,7 @@ def main(args):
             }
         else:
             basecfg = {
-                "out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
+                #"out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
                 "pre": pre,
                 "post": post,
                 "fit": fit,
@@ -168,13 +168,12 @@ def main(args):
         from collections import Counter
         print("Data: ", X.shape, " ", X[0:2,:])
         print("Labels: ", Y.shape, " ", Counter(Y))
-        break
-        # HeterogenousForest requires a list of heights so pack it into another list
+
         for base in args.base:
-            # if base == "HeterogenousForest":
-            #     heights = [args.height]
-            # else:
-            #     heights = args.height
+            if args.use_prune:
+                basecfg["out_path"] = os.path.join(dataset, "results", base, "with_prune", datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
+            else:
+                basecfg["out_path"] = os.path.join(dataset, "results", base, datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
 
             for max_l in args.nl:
                 print("Training initial {} with max_leaf_nodes = {}".format(base, max_l))
@@ -190,15 +189,13 @@ def main(args):
                 classes = []
                 for itrain, itest in idx:
                     if base == "RandomForestClassifier":
-                        #base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
                         base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes = max_l, n_jobs = args.n_jobs)
                     elif base == "ExtraTreesClassifier":
                         base_model = ExtraTreesClassifier(n_estimators = args.n_estimators, bootstrap = True,  max_leaf_nodes = max_l, n_jobs = args.n_jobs)
                     elif base == "BaggingClassifier":
-                        # This pretty much fits a RF with max_features = None / 1.0
                         base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier( max_leaf_nodes = max_l),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
                     else:
-                        base_model = HeterogenousForest(base=DecisionTreeClassifier, n_estimators = args.n_estimators, max_leaf_nodes = max_l, splitter = "random", bootstrap=True, n_jobs = args.n_jobs)
+                        base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier( max_leaf_nodes = max_l),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs, bootstrap_features = True)
                     
                     if args.use_prune:
                         XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
@@ -312,19 +309,13 @@ def main(args):
 
                     models.append(
                         {
-                            "model":"ProxPruningClassifier",
+                            "model":"LeafRefinement",
                             "model_params":{
-                                "ensemble_regularizer":"L0",
-                                "l_ensemble_reg":0,
-                                "l_tree_reg":0,
                                 "batch_size" : 128,
                                 "epochs": 50,
                                 "step_size": 1e-1, 
                                 "verbose":False,
                                 "loss":"mse",
-                                "update_leaves":True,
-                                "normalize_weights":True,
-                                "update_weights":False
                             },
                             **tmp_cfg
                         }

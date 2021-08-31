@@ -1,4 +1,4 @@
-name: hep
+name: LR
 channels:
   - conda-forge
   - gurobi
