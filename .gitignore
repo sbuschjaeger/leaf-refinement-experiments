@@ -1,6 +1,12 @@
 .vscode
-magic/results
 adult/results
+avila/results
+chess/results
+cardiotocography/results
+ida2016/results
+dota2/results
+anura/results
+magic/results
 bank/results
 letter/results
 connect/results
@@ -19,6 +25,15 @@ gas-drift/results
 japanese-vowels/results
 multi/results
 eeg/results
+mnist/results
+nursery/results
+occupancy/results
+postures/results
+shill/results
+weather/results
+nomao/results
+susy/results
+weight-lifting/results
 __pycache__
 *.data
 *.zip
@@ -34,3 +49,4 @@ __pycache__
 *.jl
 *.trn
 *.html
+*.gz

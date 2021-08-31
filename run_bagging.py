@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from PyPruning.NCPruningClassifier import NCPruningClassifier
+from numpy.random import poisson
 from OversampleForest import OversampleForest
 import sys
 import os
@@ -38,48 +39,58 @@ from PyPruning.RandomPruningClassifier import RandomPruningClassifier
 from PyPruning.ProxPruningClassifier import ProxPruningClassifier
 from PyPruning.PruningClassifier import PruningClassifier 
 from PyPruning.Papers import create_pruner 
-from HeterogenousForest import HeterogenousForest
+from HeterogenousForest import HeterogenousForest, PoissonDecisionTreeClassifier
 from datasets import get_dataset
 
 def loss(model, X, target):
-    base_preds = []
-    if hasattr(model, "_individual_proba"):
-        base_preds = model._individual_proba(X)
-        base_preds = np.array([w * p for p,w in zip(base_preds, model.weights_)])
-        # fbar = np.sum(scaled_prob,axis=0)
-    else:
-        for e in model.estimators_:
-            base_preds.append( e.predict_proba(X) )
-    fbar = np.mean(base_preds,axis=0)
+    # base_preds = []
+    # if hasattr(model, "_individual_proba"):
+    #     base_preds = model._individual_proba(X)
+    #     base_preds = np.array([w * p for p,w in zip(base_preds, model.weights_)])
+    #     fbar = np.sum(base_preds,axis=0)
+    # else:
+    #     for e in model.estimators_:
+    #         base_preds.append( e.predict_proba(X) )
+    #     fbar = np.mean(base_preds,axis=0)
+    output = model.predict_proba(X)
     target_one_hot = np.array( [ [1.0 if y == i else 0.0 for i in range(model.n_classes_)] for y in target] )
     
     # from scipy.special import softmax
     # p = softmax(fbar, axis=1)
     # b = -target_one_hot*np.log(p + 1e-7)
     # return np.sum(np.mean(b,axis=1))
-    return ((fbar - target_one_hot)**2).mean()
+    return ((output - target_one_hot)**2).mean()
 
 def bias(model, X, target):
     target_one_hot = np.array( [ [1.0 if y == i else 0.0 for i in range(model.n_classes_)] for y in target] )
-    base_preds = []
-    if hasattr(model, "_individual_proba"):
-        base_preds = model._individual_proba(X)
-        base_preds = np.array([w * p for p,w in zip(base_preds, model.weights_)])
-        # fbar = np.sum(scaled_prob,axis=0)
-    else:
-        for e in model.estimators_:
-            base_preds.append( e.predict_proba(X) )
-
     biases = []
-    for hpred in base_preds:
-        b = ((hpred - target_one_hot)**2).mean()
-        
-        # from scipy.special import softmax
-        # p = softmax(hpred, axis=1)
-        # b = -target_one_hot*np.log(p + 1e-7)
-        # b = np.sum(np.mean(b,axis=1))
-        biases.append(b)
+    for i, e in enumerate(model.estimators_):
+        if hasattr(model, "estimators_features_"):
+            Xe = X[:, model.estimators_features_[i]]
+        else:
+            Xe = X
+        biases.append( ((e.predict_proba(Xe) - target_one_hot)**2).mean() )
     return np.mean(biases)
+
+    # base_preds = []
+    # if hasattr(model, "_individual_proba"):
+    #     base_preds = model._individual_proba(X)
+    #     #base_preds = np.array([w * p for p,w in zip(base_preds, model.weights_)])
+    #     # fbar = np.sum(scaled_prob,axis=0)
+    # else:
+    #     for e in model.estimators_:
+    #         base_preds.append( e.predict_proba(X) )
+
+    # biases = []
+    # for hpred in base_preds:
+    #     b = ((hpred - target_one_hot)**2).mean()
+        
+    #     # from scipy.special import softmax
+    #     # p = softmax(hpred, axis=1)
+    #     # b = -target_one_hot*np.log(p + 1e-7)
+    #     # b = np.sum(np.mean(b,axis=1))
+    #     biases.append(b)
+    # return np.mean(biases)
 
 # def hinge(model, X, target):
 #     base_preds = []
@@ -139,8 +150,12 @@ def min_max_accuracy(model, X, target, prefix="test"):
         base_preds = model._individual_proba(X)
         base_preds = np.array([len(model.estimators_) * w * p for p,w in zip(base_preds, model.weights_)])
     else:
-        for e in model.estimators_:
-            base_preds.append( e.predict_proba(X) )
+        for i, e in enumerate(model.estimators_):
+            if hasattr(model, "estimators_features_"):
+                Xe = X[:, model.estimators_features_[i]]
+            else:
+                Xe = X
+            base_preds.append( e.predict_proba(Xe) )
 
     accs = []
     for hpred in base_preds:
@@ -167,7 +182,10 @@ def eval_model(X, Y, idx, model, rfs = None, use_prune = False, eval_bases = Fal
         # "test_hinge":[],
         "effective_height":[],
         "n_leaves":[],
-        "n_nodes":[]
+        "n_nodes":[],
+        "acc_per_nodes":[],
+        "acc_per_tree" : [],
+        "n_estimators":[]
     }
 
     models = []
@@ -177,16 +195,16 @@ def eval_model(X, Y, idx, model, rfs = None, use_prune = False, eval_bases = Fal
         if use_prune and not eval_bases:
             XTrain, YTrain = X[itrain], Y[itrain]
 
-            tmp = [XTrain]
-            for _ in range(5):
-                tmp.append( XTrain + np.random.normal(loc = 0.0, scale = 0.1, size = XTrain.shape) )
-            XPrune = np.concatenate(tmp)
-            YPrune = rfs[i].predict_proba(XPrune).argmax(axis=1)
-            print("Generated {} pruning data".format(XPrune.shape))
+            # tmp = [XTrain]
+            # for _ in range(5):
+            #     tmp.append( XTrain + np.random.normal(loc = 0.0, scale = 0.1, size = XTrain.shape) )
+            # XPrune = np.concatenate(tmp)
+            # YPrune = rfs[i].predict_proba(XPrune).argmax(axis=1)
+            # print("Generated {} pruning data".format(XPrune.shape))
 
-            XTest, YTest = X[itest], Y[itest]
-            # XTrain, XPrune, YTrain, YPrune = train_test_split(X[itrain], Y[itrain], test_size = 0.25)
             # XTest, YTest = X[itest], Y[itest]
+            XTrain, XPrune, YTrain, YPrune = train_test_split(X[itrain], Y[itrain], test_size = 0.25)
+            XTest, YTest = X[itest], Y[itest]
         else:
             XTrain, YTrain = X[itrain], Y[itrain]
             XPrune, YPrune = XTrain, YTrain
@@ -210,6 +228,7 @@ def eval_model(X, Y, idx, model, rfs = None, use_prune = False, eval_bases = Fal
         #metrics["test_diversity"].append(diversity(imodel, XTrain, YTrain))
 
         metrics["train_accuracy"].append(100.0*accuracy_score(imodel.predict_proba(XTrain).argmax(axis=1), YTrain))
+        
         # metrics["train_bias"].append(bias(imodel, XTrain, YTrain))
         # metrics["train_loss"].append(loss(imodel, XTrain, YTrain))
         # metrics["train_diversity"].append(metrics["train_bias"][-1] - metrics["train_loss"][-1])
@@ -242,6 +261,9 @@ def eval_model(X, Y, idx, model, rfs = None, use_prune = False, eval_bases = Fal
         metrics["effective_height"].append(e_height / len(imodel.estimators_))
         metrics["n_leaves"].append(n_leaves / len(imodel.estimators_))
         metrics["n_nodes"].append(n_nodes)
+        metrics["n_estimators"].append(len(imodel.estimators_))
+        metrics["acc_per_nodes"].append( metrics["train_accuracy"][-1] / n_nodes )
+        metrics["acc_per_tree"].append( (metrics["train_accuracy"][-1] - metrics["max_test_accuracy"]) / len(imodel.estimators_) )
 
     results = {
         "test_accuracy":np.mean(metrics["test_accuracy"]),
@@ -258,7 +280,10 @@ def eval_model(X, Y, idx, model, rfs = None, use_prune = False, eval_bases = Fal
         # "train_loss":np.mean(metrics["train_loss"]),
         "effective_height":np.mean(metrics["effective_height"]),
         "n_leaves":np.mean(metrics["n_leaves"]),
-        "n_nodes":np.sum(metrics["n_nodes"])
+        "n_nodes":np.sum(metrics["n_nodes"]),
+        "acc_per_nodes":np.mean(metrics["acc_per_nodes"]),
+        "acc_per_tree":np.mean(metrics["acc_per_tree"]),
+        "n_estimators":np.mean(metrics["n_estimators"])
     }
     return results, models
         
@@ -293,15 +318,30 @@ def main(args):
         metrics = []
 
         for h in args.height:
-            print("Training initial RFs with h = {}".format(h))
+            # print("Training initial HSFs with h = {}".format(h))
+            # bag = BaggingClassifier(base_estimator = PoissonDecisionTreeClassifier(max_depth=h, subspace_features=1.0, splitter="random"), n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
+            # results, hsfs = eval_model(X,Y,idx,bag,None,args.use_prune,True)
+            # metrics.append(
+            #     {
+            #         **results,
+            #         "height":h,
+            #         "K":args.n_estimators,
+            #         "method":"HSF",
+            #         "dataset":dataset,
+            #         "base":"HSF"
+            #     }
+            # )
+
+            print("Training initial HFs with h = {}".format(h))
             rf = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+            #hf = HeterogenousForest(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs, max_features = "auto")
             results, rfs = eval_model(X,Y,idx,rf,None,args.use_prune,True)
             metrics.append(
                 {
                     **results,
                     "height":h,
                     "K":args.n_estimators,
-                    "method":"RF-default",
+                    "method":"RF",
                     "dataset":dataset,
                     "base":"RF"
                 }
@@ -335,106 +375,87 @@ def main(args):
             #     }
             # )
 
-            for K in args.n_prune:
-                for l in [0, 0.25, 0.5, 0.75, 1.0]:
-                    print("Prung via NCP with K = {} and l = {}".format(K, l))
-                    pruning_options = {
-                        "ensemble_regularizer":"hard-L0",
-                        "l_ensemble_reg":K,
-                        "ncl_reg":l,
-                        "batch_size" : 128,
-                        "epochs": 5,
-                        "step_size": 1e-2, 
-                        "verbose":False,
-                        "loss":"mse",
-                        "normalize_weights":True,
-                        "tree_regularizer":None,
-                        "l_tree_reg":0
-                    }
+            # print("Training initial RFs with h = {}".format(h))
+            # rf = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+            # results, rfs = eval_model(X,Y,idx,rf,None,args.use_prune,True)
+            # metrics.append(
+            #     {
+            #         **results,
+            #         "height":h,
+            #         "K":args.n_estimators,
+            #         "method":"RF",
+            #         "dataset":dataset,
+            #         "base":"RF"
+            #     }
+            # )
 
-                    ncp_pruner = NCPruningClassifier(**pruning_options)
-                    results, _ = eval_model(X,Y,idx,ncp_pruner,rfs,args.use_prune,False)
-                    metrics.append(
-                        {
-                            **results,
-                            "height":h,
-                            "K":K,
-                            "method":"PP+RF-{}".format(l),
-                            "dataset":dataset,
-                            "base":"RF"
-                        }
-                    )
+            # print("Training initial RFs with h = {}".format(h))
+            # rf = RandomForestClassifier(n_estimators = 128, bootstrap = True, max_depth = h, n_jobs = args.n_jobs)
+            # results, _ = eval_model(X,Y,idx,rf,None,args.use_prune,True)
+            # metrics.append(
+            #     {
+            #         **results,
+            #         "height":h,
+            #         "K":128,
+            #         "method":"RF",
+            #         "dataset":dataset,
+            #         "base":"RF"
+            #     }
+            # )
+
+            # for K in [0, 1e-6, 1e-5, 1e-4, 1e-3]:
+                # for l in [1e-6, 1e-5, 1e-4]:
+            print("Prung via PP with K = {}".format(args.n_estimators))
+            pruning_options = {
+                "ensemble_regularizer":"L0",
+                "l_ensemble_reg":0,
+                "l_tree_reg":0,
+                "batch_size" : 128,
+                "epochs": 50,
+                "step_size": 1e-1, 
+                "verbose":False,
+                "loss":"mse",
+                "update_leaves":True,
+                "normalize_weights":True,
+                "update_weights":False
+            }
+
+            pp_pruner = ProxPruningClassifier(**pruning_options)
+            results, _ = eval_model(X,Y,idx,pp_pruner,rfs,args.use_prune,False)
+            metrics.append(
+                {
+                    **results,
+                    "height":h,
+                    "K":args.n_estimators,
+                    "method":"PP",
+                    "dataset":dataset,
+                    "base":"RF"
+                }
+            )
+
+            # for K in args.n_prune:
             #     print("Prung via RE+RF with K = {}".format(K))
-            #     re_pruner = create_pruner("reduced_error", n_estimators = K)
-            #     results, _ = eval_model(X,Y,idx,re_pruner,ofs,args.use_prune,False)
+            #     re_pruner = create_pruner("reduced_error", n_estimators=K)
+            #     results, _ = eval_model(X,Y,idx,re_pruner,rfs,args.use_prune,False)
             #     metrics.append(
             #         {
             #             **results,
             #             "height":h,
             #             "K":K,
-            #             "method":"RE+OF",
+            #             "method":"RE",
             #             "dataset":dataset,
-            #             "base":"OF"
+            #             "base":"RF"
             #         }
             #     )
-
-            #     results, _ = eval_model(X,Y,idx,FirstKPruner(n_estimators=K),ofs,args.use_prune,False)
-            #     metrics.append(
-            #         {
-            #             **results,
-            #             "height":h,
-            #             "K":K,
-            #             "method":"FK+OF",
-            #             "dataset":dataset,
-            #             "base":"OF"
-            #         }
-            #     )
-            # #     print("Prung via RE+ET with K = {}".format(K))
-            # #     re_pruner = create_pruner("reduced_error", n_estimators = K)
-            # #     results, _ = eval_model(X,Y,idx,re_pruner,ets,args.use_prune,False)
-            # #     metrics.append(
-            # #         {
-            # #             **results,
-            # #             "height":h,
-            # #             "K":K,
-            # #             "method":"RE+ET",
-            # #             "dataset":dataset,
-            # #             "base":"ET"
-            # #         }
-            # #     )
-
-                # print("Prung via PP with K = {}".format(K))
-                # pruning_options = {
-                #     "ensemble_regularizer":"hard-L0",
-                #     "l_ensemble_reg":K,
-                #     "l_tree_reg":0,
-                #     "batch_size" : 256,
-                #     "epochs": 5,
-                #     "step_size": 1e-2, 
-                #     "verbose":False,
-                #     "loss":"mse",
-                #     "update_leaves":False
-                # }
-
-                # pp_pruner = ProxPruningClassifier(**pruning_options)
-                # results, _ = eval_model(X,Y,idx,pp_pruner,rfs,args.use_prune,False)
-                # metrics.append(
-                #     {
-                #         **results,
-                #         "height":h,
-                #         "K":K,
-                #         "method":"PP+RF",
-                #         "dataset":dataset,
-                #         "base":"RF"
-                #     }
-                # )
-            
+                
         df = pd.DataFrame(metrics)
         df = df.sort_values(by=["dataset","height", "method", "K"])
-        print(df[["dataset", "method", "height", "effective_height", "n_leaves", "K", "test_accuracy", "test_bias", "test_diversity", "test_loss", "train_accuracy", "max_test_accuracy", "min_test_accuracy", "mean_test_accuracy", "std_test_accuracy", "n_nodes"]])
-        # grouped = df.groupby(by=["base"])
-        # for key, dff in grouped:
-        #     print(dff[["dataset", "method", "height", "effective_height", "n_leaves", "K", "test_accuracy", "test_bias", "test_diversity", "test_loss", "train_accuracy", "max_test_accuracy", "min_test_accuracy", "mean_test_accuracy", "std_test_accuracy", "n_nodes"]])
+        # with pd.option_context('display.max_rows', None):  # more options can be specified also
+        #     print(df[["dataset", "method", "height", "effective_height", "n_leaves", "K", "test_accuracy", "acc_per_nodes", "acc_per_tree", "test_bias", "test_diversity", "test_loss", "train_accuracy", "mean_test_accuracy", "std_test_accuracy", "n_nodes"]])
+        grouped = df.groupby(by=["base"])
+        for key, dff in grouped:
+            with pd.option_context('display.max_rows', None):  # more options can be specified also
+                print(dff[["dataset", "method", "base","height", "effective_height", "n_leaves", "n_estimators", "test_accuracy", "test_bias", "test_diversity", "test_loss", "train_accuracy", "max_test_accuracy", "min_test_accuracy", "mean_test_accuracy", "std_test_accuracy", "n_nodes"]])
     #df.to_csv("bagging_experiment.csv",index=False)
 
 if __name__ == '__main__':

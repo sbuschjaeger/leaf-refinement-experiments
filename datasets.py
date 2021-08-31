@@ -159,6 +159,12 @@ def get_dataset(dataset):
         X = df.values[:,1:]
         le = LabelEncoder()
         Y = le.fit_transform(label)
+        # df = pd.read_csv(os.path.join(dataset,"mnist_test.csv"), header = 0, delimiter=",")
+        # df = df.dropna()
+        # XTest = df.values[:,1:]
+        # YTest = le.transform(df.values[:,0])
+        # X = (XTrain, XTest)
+        # Y = (YTrain, YTest)
     elif dataset == "avila":
         df = pd.read_csv(os.path.join(dataset, "data.csv"), header=None)
         df = df.dropna()
@@ -238,6 +244,29 @@ def get_dataset(dataset):
         Y = le.fit_transform(label)
         df = pd.get_dummies(df)
         X = df.values
-    
+    elif dataset == "weather":
+        df = pd.read_csv(os.path.join(dataset,"weather.csv"))
+        Y = df["target"].values.astype(np.int32)
+        df = df.drop(["target"], axis=1)
+        X = df.values.astype(np.float64)
+    elif dataset == "dota2":
+        df = pd.read_csv(os.path.join(dataset, "data.csv"), header=None)
+        df = df.dropna()
+        label = df.values[:,0]
+        X = df.values[:,1:]
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+    elif dataset == "chess":
+        df = pd.read_csv(os.path.join(dataset, "krkopt.data"), header=None)
+        df = df.dropna()
+        label = df[df.columns[-1]]
+        df = df[df.columns[:-1]]
+        df = pd.get_dummies(df)
+        X = df.values
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+    else:
+        return None, None
+
     return X, Y
         
