@@ -59,7 +59,7 @@ def memory(row):
 
     return row["scores.mean_n_nodes"] * (17 + 4*n_classes)  / 1024.0
 
-def nice_name(row):
+def nice_name(row, base):
     '''
     Sanitize names for later plotting. 
     '''
@@ -67,10 +67,19 @@ def nice_name(row):
         return "ET"
     elif row["model"] == "AdaBoostClassifier":
         return "AB"
+    elif row["model"] == "GradientBoostingClassifier":
+        return "GB"
     elif row["model"] == "RandomForestClassifier":
         return "RF"
-    elif row["model"] == "ProxPruningClassifier":
-        return "RF-LR"
+    elif row["model"] == "BaggingClassifier":
+        return "Bag."
+    elif row["model"] == "LeafRefinement" or row["model"] == "ProxPruningClassifier": # We changed the name after we already did 75% of the experiments. 
+        if base == "RandomForestClassifier":
+            return "RF-LR"
+        elif base == "BaggingClassifier":
+            return "Bag-LR"
+        else:
+            return "ET-LR"
     elif row["model"] == "RandomPruningClassifier":
         return "rand."
     elif row["model"] == "complementariness":
@@ -108,19 +117,22 @@ def nice_name(row):
     else:
         return row["model"]
 
-def read_data(base, dataset):
+def read_data(base, dataset, with_prune=False):
     # Select the dataset which should be plotted and navigate to the youngest folder
     # If you have another folder-structure you can comment out this code and simply set latest_folder to the correct path
     # If you ran experiments on multiple datasets the corresponding folder is called "multi" 
-
-    dataset = os.path.join(dataset, "results", "base")
-    all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
+    if with_prune:
+        dataset = os.path.join(dataset, "results", base, "with_prune")
+        all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d))]
+    else:
+        dataset = os.path.join(dataset, "results", base)
+        all_subdirs = [os.path.join(dataset,d) for d in os.listdir(dataset) if os.path.isdir(os.path.join(dataset, d)) and "with_prune" not in d]
     latest_folder = max(all_subdirs, key=os.path.getmtime)
-    print("Reading {}".format(os.path.join(latest_folder, "results.jsonl")))
+    print("Reading {}".format(os.path.join(latest_folder, "results_combined.jsonl")))
 
     # Read the file 
     #df = read_jsonl(os.path.join(latest_folder, "results.jsonl"))
-    path = os.path.join(latest_folder, "results.jsonl")
+    path = os.path.join(latest_folder, "results_combined.jsonl")
     data = []
     with open(path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -130,7 +142,7 @@ def read_data(base, dataset):
     print("Read {}".format(path))
 
     # Compute nicer model names and the memory consumption
-    df["model"] = df.apply(partial(nice_name), axis=1)
+    df["model"] = df.apply(partial(nice_name, base = base), axis=1)
     df["KB"] = df.apply(memory, axis=1)
 
     # Rename some columns for readability
@@ -139,17 +151,16 @@ def read_data(base, dataset):
     df["n_nodes"] = df["scores.mean_n_nodes"]
     df["fit_time"] = df["scores.mean_fit_time"]
     df["n_estimators"] = df["scores.mean_n_estimators"]
-    df["comparisons"] = df["scores.mean_avg_comparisons_per_tree"]
+    #df["comparisons"] = df["scores.mean_avg_comparisons_per_tree"]
     
+    df = df.loc[df["model"] != "AB"]
     return df
 
 # %%
 
 """
-Compute the plots for the first experiments. You can set the dataset which should be plotted via the `dataset' variable. 
-The `read_data' function will load the latest results from the sub-folder. The run script trains trees with 
-[4096,2048, 1024, 512, 256, 128, 64] `max_leaf_nodes'. For larger `max_leaf_nodes' the plots start to 
-overlap so the plot does not look nice. Hence, we decided to filter for [1024, 512, 256, 128, 64] leaf nodes. 
+Compute the plots for the first experiments. You can set the dataset which should be plotted via the `dataset' and set `use_prune` if you used a dedicated pruning set. 
+The `read_data' function will load the latest results from the sub-folder. 
 """
 datasets = [
     "adult",
@@ -170,13 +181,22 @@ datasets = [
     "satimage"
 ]
 
-base = "RandomForestClassifier"
+base = "BaggingClassifier"
+with_prune = False
 show = False
+
 for d in datasets:
     #dataset = "magic" # dataset to be plotted
-    df = read_data(base, d)
+    df = read_data(base, d, with_prune)
     max_leaves_to_plot = [1024, 512, 256, 128, 64] #4096,2048 
-    models_to_plot = ["RE", "RF"] # methods to be compared 
+    # methods to be compared 
+    if base == "RandomForestClassifier":
+        models_to_plot = ["RE", "RF"] 
+    elif base == "ExtraTreesClassifier":
+        models_to_plot = ["RE", "ET"] 
+    elif base == "BaggingClassifier":
+        models_to_plot = ["RE", "Bag."] 
+
     names = []
 
     fig = plt.figure()
@@ -197,7 +217,10 @@ for d in datasets:
     plt.ylabel("Accuracy")
     if show:
         plt.show()
-    fig.savefig("{}_{}_revisited.pdf".format(base,d), bbox_inches='tight')
+    fig.savefig(os.path.join("plots","{}{}_{}_revisited.pdf".format(base,"_with_prune" if with_prune else "",d)), bbox_inches='tight')
+    plt.close()
+    
+print("DONE")
 
 # %%
 """
@@ -222,16 +245,24 @@ datasets = [
     "satimage"
 ]
 
-base = "RandomForestClassifier"
+base = "BaggingClassifier"
+with_prune = False
 show = False
 
 for d in datasets:
-    df = read_data(base,d)
+    df = read_data(base,d,with_prune)
 
     max_leaves_to_table = [1024, 512, 256, 128, 64] #[16, 32, 64, 128, 2048]
     n_estimators = [8, 16, 32, 64, 128]
-    models_to_table = ["RE", "RF", "IE", "IC", "COMP", "DREP", "LMD"]
+    models_to_table = ["RE", "IE", "IC", "COMP", "DREP", "LMD"]
 
+    if base == "RandomForestClassifier":
+        models_to_plot = ["RE", "RF"] 
+    elif base == "ExtraTreesClassifier":
+        models_to_plot = ["RE", "ET"] 
+    elif base == "BaggingClassifier":
+        models_to_plot = ["RE", "Bag."]
+    
     dff = df.copy()
     # dff = dff.loc[dff["dataset"] == dataset_to_plot]
     dff = dff.loc[dff["max_leaf_nodes"].isin(max_leaves_to_table)]
@@ -241,10 +272,12 @@ for d in datasets:
     dff = dff.drop_duplicates(["model","max_leaf_nodes","n_estimators"], keep="last")
 
     pdf = dff.pivot_table(index=["max_leaf_nodes","n_estimators"], values="test_accuracy", columns = ["model"])
-    pdf.round(2).to_latex("{}_{}_revisited.tex".format(base,d))
+    pdf.round(2).to_latex(os.path.join("plots","{}{}_{}_revisited.tex".format(base,"_with_prune" if with_prune else "",d)))
     if show:
         display(pdf.round(2))
         print(pdf.round(2).to_latex())
+
+print("DONE")
 
 # %%
 import scipy
@@ -277,6 +310,12 @@ def get_pareto(df, columns):
     return df.iloc[population_ids[pareto_front]]
 
 datasets = [
+    #"dry-beans",
+    # "spambase",
+    #"letter",
+    # "thyroid",
+    # "gas-drift",
+    # "wine-quality",
     "adult",
     "connect",
     "chess",
@@ -292,45 +331,55 @@ datasets = [
     "nomao",
     "avila",
     "ida2016",
-    "satimage"
+    "satimage",
 ]
 
-base = "RandomForestClassifier"
-
+base = "BaggingClassifier"
+with_prune = False
 max_leaf_nodes = [64, 128, 256, 512, 1024]
 show = False
-colors = ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6']
-markers = ["o", "v", "^", "<", ">", "s", "P", "X", "D"]
-styles = ["-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-.", ":",]
+#colors = ['#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#6a3d9a','#b15928']
+colors = ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99']
+markers = ["o", "v", "^", "<", ">", "s", "P", "X", "D", "o", "v", "^", "<"]
+styles = ["-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-."]
 aucs = []
 
 for d in datasets:
-    dff = read_data(base,d)
+    dff = read_data(base,d,with_prune)
     #dff["test_accuracy"] = dff["test_accuracy"].round(1)
 
     #dff = dff.loc[dff["KB"] < 1000]
     dff = dff.loc[dff["max_leaf_nodes"].isin(max_leaf_nodes)]
 
     max_kb = None
+    min_kb = None
     for name, group in dff.groupby(["model"]):
+        if name == "GB" or name == "AB":
+            # Sometimes AdaBoost / GB would produce very small and very weak models because of early stopping (I think?). This is a little unfair, because all the RF-like ensembles cannot really produce smaller models than what we have chosen for K / max_leaf_nodes. To make this more comparable we filter now for the smalles RF-like ensemble. The comparison between RF-like and GB is anyhow a little out of scope for this paper, but the reviewers want it. 
+            continue
+
         if max_kb is None or group["KB"].max() > max_kb:
             max_kb = group["KB"].max()
+
+        if min_kb is None or group["KB"].min() < min_kb:
+            min_kb = group["KB"].min()
 
     fig = plt.figure()
     for (name, group), marker, color, style in zip(dff.groupby(["model"]),markers, colors, styles):
         pdf = get_pareto(group, ["test_accuracy", "KB"])
         pdf = pdf[["model", "test_accuracy", "KB", "fit_time"]]
         # pdf = pdf.loc[pdf["test_accuracy"] > 86]
-        #pdf = pdf.loc[pdf["KB"] > 100]
+        pdf = pdf.loc[pdf["KB"] >= min_kb]
         pdf = pdf.sort_values(by=['test_accuracy'], ascending = True)
         
         x = np.append(pdf["KB"].values, [max_kb])
         y = np.append(pdf["test_accuracy"].values, [pdf["test_accuracy"].values[-1]]) / 100.0
         
-        x_scatter = np.append(group["KB"].values, [max_kb])
-        y_scatter = np.append(group["test_accuracy"].values,[pdf["test_accuracy"].values[-1]]) / 100.0
+        # x_scatter = np.append(group["KB"].values, [max_kb])
+        # y_scatter = np.append(group["test_accuracy"].values,[pdf["test_accuracy"].values[-1]]) / 100.0
 
-        plt.scatter(x_scatter,y_scatter,s = [2.5**2 for _ in x_scatter], color = color)
+        #plt.scatter(x_scatter,y_scatter,s = [2.5**2 for _ in x_scatter], color = color)
+        plt.scatter(x,y,s = [2.5**2 for _ in x], color = color)
 
         plt.plot(x,y, label=name, color=color) #marker=marker
         aucs.append(
@@ -343,10 +392,11 @@ for d in datasets:
         )
 
     print("Dataset {}".format(d))
-    plt.legend(loc="lower right")
+    plt.legend(loc="lower right", bbox_to_anchor=(1.25, 0))
     plt.xlabel("Model Size [KB]")
     plt.ylabel("Accuracy")
-    fig.savefig("auc_{}.pdf".format(d), bbox_inches='tight')
+    plt.xscale("log")
+    fig.savefig(os.path.join("plots","{}{}_{}_paretofront.pdf".format(base,"_with_prune" if with_prune else "",d)), bbox_inches='tight')
     if show:
         plt.show()
     plt.close()
@@ -356,9 +406,9 @@ tabledf = pd.DataFrame(aucs)
 # tabledf["AUC norm"] = tabledf["AUC"] / ref_auc
 #tabledf["AUC norm"] = tabledf["AUC"] / max_kb
 tabledf.sort_values(by=["dataset","AUC"], inplace = True, ascending=False)
-tabledf.to_csv("aucs_{}.csv".format(base),index=False)
+tabledf.to_csv(os.path.join("plots","aucs_{}{}.csv".format(base,"_with_prune" if with_prune else "")),index=False)
 
-tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4).to_latex("aucs_{}.tex".format(base))
+tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4).to_latex(os.path.join("plots","aucs_{}{}.tex".format(base, "_with_prune" if with_prune else "")))
 #if show:
 display(tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4))
 # %%

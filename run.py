@@ -65,6 +65,8 @@ def pre(cfg):
         model_ctor = AdaBoostClassifier
     elif cfg["model"] == "LeafRefinement":
         model_ctor = LeafRefinement
+    elif cfg["model"] == "GradientBoostingClassifier":
+        model_ctor = GradientBoostingClassifier
     else:
         model_ctor = partial(create_pruner, method = cfg["model"]) 
 
@@ -87,7 +89,7 @@ def fit(cfg, from_pre):
     if model is None:
         print(cfg)
 
-    if cfg["model"] == "AdaBoostClassifier":
+    if cfg["model"] == "AdaBoostClassifier" or cfg["model"] == "GradientBoostingClassifier":
         model.fit(X, Y)
     else:
         model.prune(X, Y, estimators, cfg["classes"][i], cfg["n_classes"])
@@ -106,11 +108,14 @@ def post(cfg, from_fit):
     #     scores["roc_auc"] = roc_auc_score(Y, pred.argmax(axis=1))
     # else:
     #     scores["roc_auc"] = roc_auc_score(Y, pred, multi_class="ovr")
-    n_total_comparisons = 0
-    for est in from_fit.estimators_:
-        n_total_comparisons += est.decision_path(X).sum()
-    scores["avg_comparisons_per_tree"] = n_total_comparisons / (X.shape[0] * len(from_fit.estimators_))
-    scores["n_nodes"] = sum( [ est.tree_.node_count for est in from_fit.estimators_] )
+    # n_total_comparisons = 0
+    # for est in from_fit.estimators_:
+    #     n_total_comparisons += est.decision_path(X).sum()
+    # scores["avg_comparisons_per_tree"] = n_total_comparisons / (X.shape[0] * len(from_fit.estimators_))
+    if isinstance(model, GradientBoostingClassifier):
+        scores["n_nodes"] = sum( [ hi.tree_.node_count for est in from_fit.estimators_ for hi in est ] )
+    else:
+        scores["n_nodes"] = sum( [ est.tree_.node_count for est in from_fit.estimators_] )
     scores["n_estimators"] = len(from_fit.estimators_)
     return scores
 
@@ -178,6 +183,7 @@ def main(args):
                 basecfg["out_path"] = os.path.join(dataset, "results", base, "with_prune", datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
             else:
                 basecfg["out_path"] = os.path.join(dataset, "results", base, datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
+            #basecfg["out_path"] = os.path.join(dataset, "results", "AdaBoostClassifier", datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
 
             for max_l in args.nl:
                 print("Training initial {} with max_leaf_nodes = {}".format(base, max_l))
@@ -242,16 +248,27 @@ def main(args):
                         }
                     )
 
-                    # models.append(
-                    #     {
-                    #         "model":"AdaBoostClassifier",
-                    #         "model_params":{
-                    #             "n_estimators":K,
-                    #             "base_estimator":DecisionTreeClassifier(max_leaf_nodes = max_l)
-                    #         },
-                    #         **experiment_cfg
-                    #     }
-                    # )
+                    models.append(
+                        {
+                            "model":"AdaBoostClassifier",
+                            "model_params":{
+                                "n_estimators":K,
+                                "base_estimator":DecisionTreeClassifier(max_leaf_nodes = max_l)
+                            },
+                            **experiment_cfg
+                        }
+                    )
+
+                    models.append(
+                        {
+                            "model":"GradientBoostingClassifier",
+                            "model_params":{
+                                "n_estimators":K,
+                                "max_leaf_nodes":max_l
+                            },
+                            **experiment_cfg
+                        }
+                    )
 
                     for model in ["individual_contribution", "individual_error",  "reduced_error", "complementariness"]:
                         models.append(
