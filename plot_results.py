@@ -412,3 +412,130 @@ tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(
 #if show:
 display(tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4))
 # %%
+#"dry-beans",
+# "spambase",
+#"letter",
+# "thyroid",
+# "gas-drift",
+# "wine-quality",
+datasets = [
+    "eeg",
+    "adult",
+    "connect",
+    "chess",
+    "anura",
+    "bank",
+    "elec",
+    "postures",
+    "japanese-vowels",
+    "magic",
+    "mozilla",
+    "mnist",
+    "ida2016",
+    "nomao",
+    "avila",
+    "satimage",
+]
+
+base = "BaggingClassifier"
+with_prune = True
+max_kb = [32,64,128,256] #64, 12
+
+colors = ['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a','#ffff99']
+markers = ["o", "v", "^", "<", ">", "s", "P", "X", "D", "o", "v", "^", "<"]
+styles = ["-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-.", ":","-", "--", "-."]
+
+dfs = []
+for d in datasets:
+    dfs.append( read_data(base,d,with_prune) )
+
+df = pd.concat(dfs)
+for mk in max_kb:
+    dff = df.copy()
+    dff["test_accuracy"].loc[dff["KB"] > mk] = 0
+    dff["KB"].loc[dff["KB"] > mk] = 0
+
+    dff.fillna(0, inplace=True)
+    dff = dff.sort_values('test_accuracy', ascending=False).drop_duplicates(["dataset", "model"])
+
+    #dff = dff.loc[  dff.groupby(["dataset", "model"])["test_accuracy"].idxmax() ]
+    
+    pdf = dff.pivot_table(index=["dataset"], values=["test_accuracy"], columns=["model"]).round(3)
+
+    # pdf.style.highlight_min(subset=['a'], props='textbf:--rwrap;')\
+    #     .highlight_max(subset=['b','c','d'], props='textbf:--rwrap').to_latex(hrules=True)
+
+    pdf.style.format("{:0.3f}").highlight_max(axis=1,props='textbf:--rwrap').to_latex(
+        buf = os.path.join(
+            "plots","raw_{}{}_{}.tex".format(base, "_with_prune" if with_prune else "", mk)
+        )#, float_format = "{:0.2f}"
+    )
+
+    # pdf.style.highlight_max(axis=None,props='textbf:--rwrap')
+    display(pdf)
+
+#     dff = 
+    
+#     #dff["test_accuracy"] = dff["test_accuracy"].round(1)
+
+
+#     max_kb = None
+#     min_kb = None
+#     for name, group in dff.groupby(["model"]):
+#         if name == "GB" or name == "AB":
+#             # Sometimes AdaBoost / GB would produce very small and very weak models because of early stopping (I think?). This is a little unfair, because all the RF-like ensembles cannot really produce smaller models than what we have chosen for K / max_leaf_nodes. To make this more comparable we filter now for the smalles RF-like ensemble. The comparison between RF-like and GB is anyhow a little out of scope for this paper, but the reviewers want it. 
+#             continue
+
+#         if max_kb is None or group["KB"].max() > max_kb:
+#             max_kb = group["KB"].max()
+
+#         if min_kb is None or group["KB"].min() < min_kb:
+#             min_kb = group["KB"].min()
+
+#     fig = plt.figure()
+#     for (name, group), marker, color, style in zip(dff.groupby(["model"]),markers, colors, styles):
+#         pdf = get_pareto(group, ["test_accuracy", "KB"])
+#         pdf = pdf[["model", "test_accuracy", "KB", "fit_time"]]
+#         # pdf = pdf.loc[pdf["test_accuracy"] > 86]
+#         pdf = pdf.loc[pdf["KB"] >= min_kb]
+#         pdf = pdf.sort_values(by=['test_accuracy'], ascending = True)
+        
+#         x = np.append(pdf["KB"].values, [max_kb])
+#         y = np.append(pdf["test_accuracy"].values, [pdf["test_accuracy"].values[-1]]) / 100.0
+        
+#         # x_scatter = np.append(group["KB"].values, [max_kb])
+#         # y_scatter = np.append(group["test_accuracy"].values,[pdf["test_accuracy"].values[-1]]) / 100.0
+
+#         #plt.scatter(x_scatter,y_scatter,s = [2.5**2 for _ in x_scatter], color = color)
+#         plt.scatter(x,y,s = [2.5**2 for _ in x], color = color)
+
+#         plt.plot(x,y, label=name, color=color) #marker=marker
+#         aucs.append(
+#             {
+#                 "model":name,
+#                 #"AUC":np.trapz(y, x),
+#                 "AUC":np.trapz(y, x) / max_kb,
+#                 "dataset":d
+#             }
+#         )
+
+#     print("Dataset {}".format(d))
+#     plt.legend(loc="lower right", bbox_to_anchor=(1.25, 0))
+#     plt.xlabel("Model Size [KB]")
+#     plt.ylabel("Accuracy")
+#     plt.xscale("log")
+#     fig.savefig(os.path.join("plots","{}{}_{}_paretofront.pdf".format(base,"_with_prune" if with_prune else "",d)), bbox_inches='tight')
+#     if show:
+#         plt.show()
+#     plt.close()
+
+# tabledf = pd.DataFrame(aucs)
+# # tabledf["ΔAUC"] = ref_auc - tabledf["AUC"]
+# # tabledf["AUC norm"] = tabledf["AUC"] / ref_auc
+# #tabledf["AUC norm"] = tabledf["AUC"] / max_kb
+# tabledf.sort_values(by=["dataset","AUC"], inplace = True, ascending=False)
+# tabledf.to_csv(os.path.join("plots","aucs_{}{}.csv".format(base,"_with_prune" if with_prune else "")),index=False)
+
+# tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4).to_latex(os.path.join("plots","aucs_{}{}.tex".format(base, "_with_prune" if with_prune else "")))
+# #if show:
+# display(tabledf.pivot_table(index=["dataset"], values=["AUC"], columns=["model"]).round(4))
