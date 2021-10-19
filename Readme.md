@@ -15,9 +15,7 @@ This is the repository for the paper "Improving the Accuracy-Memory Trade-Off of
 
 This git repository contains two submodules `PyPruning` and `experiment_runner` which need to be cloned first. 
 
-    (removed to preserve anonymity)
-
-**Note for reviewers @ AAAI2022**: For your convenience and to not break the double-blind reviewing process, we already included all submodules in this submission. Additionally, we deleted all git-related files to reduce information leakage of the authors.
+    git clone --recurse-submodules git@github.com:sbuschjaeger/leaf-refinement-experiments.git
 
 After the code has been obtained you need to install all dependencies. If you use `Anaconda` you can simply call
 
