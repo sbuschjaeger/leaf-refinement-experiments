@@ -1,5 +1,6 @@
-name: LR
+name: lr
 channels:
+  - pytorch
   - conda-forge
   - gurobi
 dependencies:
@@ -13,10 +14,10 @@ dependencies:
   - jupyter
   - gurobi
   - openpyxl
+  - pytorch 
+  - torchvision 
+  - torchaudio 
+  - pip
   - pip:
     - scikit_posthocs
-  # - pip:
-  #   - pip install -e file:PyPruning
-  #   - pip install -e file:experiment_runner
-    # - pip install git+ssh://git@github.com/sbuschjaeger/PyPruning.git
-    # - pip install git+ssh://git@github.com/sbuschjaeger/experiment_runner.git
+#    - pip install https://github.com/sbuschjaeger/PyPruning.git

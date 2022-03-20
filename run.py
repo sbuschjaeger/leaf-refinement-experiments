@@ -1,361 +1,478 @@
 #!/usr/bin/env python3
 
-#SKLearn sometimes throws warnings due to n_jobs not being supported in the future for KMeans. Just ignore them for now
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
-
-from datasets import get_dataset
-import sys
-import os
-import numpy as np
+from enum import unique
+from operator import index
+import time
 import pandas as pd
-from datetime import datetime
-import argparse
-import random
-from scipy.io.arff import loadarff
 import copy
+import numpy as np
+import argparse
+from multiprocessing import Pool
+from sklearn.ensemble import ExtraTreesClassifier, GradientBoostingClassifier, RandomForestClassifier
+from sklearn.tree import ExtraTreeClassifier
+from tqdm import tqdm
+from datetime import datetime
+from collections import Counter
+import os, psutil
+from PyPruning.Papers import create_pruner 
 
-from functools import partial
-
-from sklearn.model_selection import KFold
-from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
+
+from sklearn.utils import parallel_backend
+
+from LeafRefinement import LeafRefinery
+
+from Datasets import get_dataset
+
+# from Metrics import accuracy, avg_accuracy, avg_rademacher, c_bound, n_nodes, n_leaves, effective_height, soft_hinge, mse, bias, diversity
 
 from sklearn.metrics import accuracy_score
 
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import ExtraTreesClassifier
-from sklearn.ensemble import BaggingClassifier
-from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, KBinsDiscretizer
-from sklearn.metrics import roc_auc_score
+def accuracy(model, X, target):
+    return 100.0*accuracy_score(target, model.predict(X))
 
-# from sklearn.metrics import make_scorer, accuracy_score
-from sklearn.preprocessing import MinMaxScaler
+def get_n_estimators(model, X, target):
+    return len(model.trees) if hasattr(model, "trees") else len(model.estimators_)
 
-from experiment_runner.experiment_runner import run_experiments, Variation, generate_configs
+def beautify_scores(scores):
+    """Remove test_ in all scores for a nicer output and compute the mean of each score.
 
-from PyPruning.RandomPruningClassifier import RandomPruningClassifier
-from PyPruning.PruningClassifier import PruningClassifier 
-from PyPruning.Papers import create_pruner 
+    Args:
+        scores (dict): A dictionary of the scores in which each score has a list of the corresponding scores, e.g. scores["test_accuracy"] = [0.88, 0.82, 0.87, 0.90, 0.85]
 
-from LeafRefinement import LeafRefinement
+    Returns:
+        dict: A dictionary in which all "test_*" keys have been replaced by "*" and all scores are now averaged.  
+    """
+    nice_scores = {}
+    for key, val in scores.items():
+        if "test" in key:
+            key = key.replace("test_","")
 
-# As a baseline we also want to evaluate the unpruned classifier. To use the
-# same code base below we implement a NotPruningPruner which does not prune at all
-# and uses the original model. 
-class NotPruningPruner(PruningClassifier):
+        print(key, ":", val)
+        nice_scores[key] = np.mean(val)
+    return nice_scores
 
-    def __init__(self, n_estimators = 5):
-        super().__init__()
-        self.n_estimators = n_estimators
+def merge_dictionaries(dicts):
+    """Merges the given list of dictionaries into a single dictionary:
+    [
+        {'a':1,'b':2}, {'a':1,'b':2}, {'a':1,'b':2}
+    ]
+    is merged into
+    {
+        'a' : [1,1,1]
+        'b' : [2,2,2]
+    }
 
-    def prune_(self, proba, target, data = None):
-        n_received = len(proba)
-        return range(0, n_received), [1.0 / n_received for _ in range(n_received)]
+    Args:
+        dicts (list of dicts): The list of dictionaries to be merged.
 
-def pre(cfg):
-    if cfg["model"] in ["RandomForestClassifier", "ExtraTreesClassifier", "BaggingClassifier"]:
-    #    model_ctor = NotPruningPruner
-    #elif cfg["model"] == "RandomPruningClassifier":
-        model_ctor = RandomPruningClassifier
-    elif cfg["model"] == "AdaBoostClassifier":
-        model_ctor = AdaBoostClassifier
-    elif cfg["model"] == "LeafRefinement":
-        model_ctor = LeafRefinement
-    elif cfg["model"] == "GradientBoostingClassifier":
-        model_ctor = GradientBoostingClassifier
+    Returns:
+        dict: The merged dictionary.
+    """
+    merged = {}
+    for d in dicts:
+        for key, val in d.items():
+            if key not in merged:
+                merged[key] = [val]
+            else:
+                merged[key].append(val)
+    return merged
+
+def run_eval(cfg):
+    """Fits and evalutes the model given the current configuration. The cfg tuple is expected to have the following form
+        (model, X, Y, scoring, idx, additional_infos, run_id)
+    This function basically extracts the train/test indicies supplied by idx given the current run_id:
+        train, test = idx[rid]
+        XTrain, YTrain = X[train,:], Y[train]
+        XTest, YTest = X[test,:], Y[test]
+    and then trains and evaluates a classifier on XTrain/Ytrain and XTest/YTest. Any additional_infos passed to this function are simply returned which makes housekeeping a little easier. 
+
+    Args:
+        cfg (tuple): A tuple of the form (model, X, Y, scoring, idx, additional_infos, run_id)
+
+    Returns:
+        a tuple of (dict, dict): The first dictionary is the result of the evaluation of the form 
+        {
+            'test_accuracy': 0.8,
+            'train_accuracy': 0.9, 
+            # ....
+        }. The second dictionary contains the additional_infos passed to this function. 
+    """
+    model, scoring, additional_infos, rid, d = cfg["model"], cfg["scoring"], cfg["additional_infos"], cfg["run_id"], cfg["max_depth"]
+
+    if "idx" in cfg:
+        X, Y, idx = cfg["X"], cfg["Y"], cfg["idx"]
+        train, test = idx[rid]
+        XTrain, YTrain = X[train,:], Y[train]
+        XTest, YTest = X[test,:], Y[test]
     else:
-        model_ctor = partial(create_pruner, method = cfg["model"]) 
+        XTrain, YTrain = cfg["X_train"], cfg["y_train"]
+        XTest, YTest = cfg["X_test"], cfg["y_test"]
 
-    model_params = cfg["model_params"]
+    from sklearn.preprocessing import MinMaxScaler
+    scaler = MinMaxScaler()
+    XTrain = scaler.fit_transform(XTrain)
+    XTest = scaler.transform(XTest)
+    
+    import os, psutil
+    process = psutil.Process(os.getpid())
+    # print("BEFORE FIT: {} Mb".format(process.memory_info().rss / 10**6)) 
 
-    if "out_path" in model_params and model_params["out_path"] is not None:
-        model_params["out_path"] = cfg["out_path"]
-
-    model = model_ctor(**model_params)
-    return model
-
-def fit(cfg, from_pre):
-    model = from_pre
-    i = cfg["run_id"]
-    pruneidx = cfg["pruneidx"][i]
-    X, Y = cfg["X"][pruneidx],cfg["Y"][pruneidx]
-    estimators = cfg["estimators"][i]
-    # print("Received {} estimators. Now pruning.".format(len(estimators)))
+    start = time.time()
+    base = RandomForestClassifier(n_estimators=16, max_depth=d, bootstrap = True, random_state=42) 
+    base.fit(XTrain, YTrain)
 
     if model is None:
-        print(cfg)
-
-    if cfg["model"] == "AdaBoostClassifier" or cfg["model"] == "GradientBoostingClassifier":
-        model.fit(X, Y)
+        model = base
     else:
-        model.prune(X, Y, estimators, cfg["classes"][i], cfg["n_classes"])
-    return model
+        model.prune(XTrain, YTrain, base.estimators_, base.classes_, base.n_classes_)
+    end = time.time()
 
-def post(cfg, from_fit):
     scores = {}
-    model = from_fit
-    i = cfg["run_id"]
-    testidx = cfg["testidx"][i]
-    X, Y = cfg["X"][testidx],cfg["Y"][testidx]
+    for name, method in scoring.items():
+        scores["test_{}".format(name)] = method(model, XTest, YTest)
+        scores["train_{}".format(name)] = method(model, XTrain, YTrain)
 
-    pred = from_fit.predict_proba(X)
-    scores["accuracy"] = 100.0 * accuracy_score(Y, pred.argmax(axis=1))
-    # if(pred.shape[1] == 2):
-    #     scores["roc_auc"] = roc_auc_score(Y, pred.argmax(axis=1))
-    # else:
-    #     scores["roc_auc"] = roc_auc_score(Y, pred, multi_class="ovr")
-    # n_total_comparisons = 0
-    # for est in from_fit.estimators_:
-    #     n_total_comparisons += est.decision_path(X).sum()
-    # scores["avg_comparisons_per_tree"] = n_total_comparisons / (X.shape[0] * len(from_fit.estimators_))
-    if isinstance(model, GradientBoostingClassifier):
-        scores["n_nodes"] = sum( [ hi.tree_.node_count for est in from_fit.estimators_ for hi in est ] )
-    else:
-        scores["n_nodes"] = sum( [ est.tree_.node_count for est in from_fit.estimators_] )
-    scores["n_estimators"] = len(from_fit.estimators_)
-    return scores
+    scores["train_time_sec"] = end - start 
+    return scores, additional_infos
 
+def prepare_xval(cfg, xval):
+    """Small helper function which copies the given config xval times and inserts the correct run_id for running cross-validations.
+
+    Args:
+        cfg (dict): The configuration.
+        xval (int): The number of cross-validation runs.
+
+    Returns:
+        list: A list of configurations.
+    """
+    cfgs = []
+    for i in range(xval):
+        #tmp = copy.deepcopy(cfg)
+        tmp = cfg
+        tmp["run_id"] = i
+        cfgs.append(tmp)
+    return cfgs
 
 def main(args):
-    if args.nl is None:
-        args.nl = [None]
-    else:
-        args.nl = [None if h <= 0 else h for h in args.nl]
+    random_state = 42
+    np.random.seed(random_state)
+    all_df = []
+    statistics = []
 
-    if args.n_prune is None:
-        args.n_prune = [32]
+    if len(args.max_depth) == 0:
+        max_depth = [None]
+    else:
+        max_depth = args.max_depth
 
     for dataset in args.dataset:
+        data = get_dataset(dataset, args.tmpdir)
+        if data is None: 
+            print("ERROR downloading {}. Skipping".format(dataset))
+            continue
 
-        if args.n_jobs == 1:
-            basecfg = {
-                #"out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
-                "pre": pre,
-                "post": post,
-                "fit": fit,
-                "backend": "single",
-                "verbose":True,
-                "timeout":args.timeout
+        for d in max_depth:
+            scoring = {
+                "accuracy":accuracy,
+                "n_estimators":get_n_estimators
             }
-        else:
-            basecfg = {
-                #"out_path":os.path.join(dataset, "results", datetime.now().strftime('%d-%m-%Y-%H:%M:%S')),
-                "pre": pre,
-                "post": post,
-                "fit": fit,
-                "backend": "multiprocessing",
-                "num_cpus":args.n_jobs,
-                "verbose":True,
-                "timeout":args.timeout
-            }
+            process = psutil.Process(os.getpid())
+            print("BEFORE LOADING: {} Mb".format(process.memory_info().rss / 10**6)) 
 
-        models = []
-        print("Loading {}".format(dataset))
+            print("Dataset: {}".format(dataset))
+            if len(data) == 4:
+                X_train,y_train,X_test,y_test = data
+                class_dist = Counter(sorted(y_train))
+                print("Data: ", X_train.shape, " ", X_train[0:2,:])
+                print("Labels: ", y_train.shape, " ", class_dist )
+                xval = 1
 
-        X, Y = get_dataset(dataset)
-        
-        if X is None or Y is None: 
-            exit(1)
-            
-        np.random.seed(12345)
-
-        kf = StratifiedKFold(n_splits=args.xval, random_state=12345, shuffle=True)
-        
-        if dataset == "mnist":
-            idx = np.array( [ (list(range(1000,7000)), list(range(0,1000))) ] , dtype=object)
-        elif dataset == "ida2016":
-            idx = np.array( [ (list(range(0,60000)), list(range(60000,76000)))  ] , dtype=object)
-        elif dataset == "dota2":
-            idx = np.array( [ (list(range(0,92650)), list(range(92650,102944)))  ] , dtype=object)
-        else:
-            idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
-
-        from collections import Counter
-        print("Data: ", X.shape, " ", X[0:2,:])
-        print("Labels: ", Y.shape, " ", Counter(Y))
-
-        for base in args.base:
-            if args.use_prune:
-                basecfg["out_path"] = os.path.join(dataset, "results", base, "with_prune", datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
-            else:
-                basecfg["out_path"] = os.path.join(dataset, "results", base, datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
-            #basecfg["out_path"] = os.path.join(dataset, "results", "AdaBoostClassifier", datetime.now().strftime('%d-%m-%Y-%H:%M:%S'))
-
-            for max_l in args.nl:
-                print("Training initial {} with max_leaf_nodes = {}".format(base, max_l))
-
-                trainidx = []
-                testidx = []
-                pruneidx = []
-
-                # rf_estimators = []
-                # rf_classes = []
-
-                estimators = []
-                classes = []
-                for itrain, itest in idx:
-                    if base == "RandomForestClassifier":
-                        base_model = RandomForestClassifier(n_estimators = args.n_estimators, bootstrap = True, max_leaf_nodes = max_l, n_jobs = args.n_jobs)
-                    elif base == "ExtraTreesClassifier":
-                        base_model = ExtraTreesClassifier(n_estimators = args.n_estimators, bootstrap = True,  max_leaf_nodes = max_l, n_jobs = args.n_jobs)
-                    elif base == "BaggingClassifier":
-                        base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier( max_leaf_nodes = max_l),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs)
-                    else:
-                        base_model = BaggingClassifier(base_estimator = DecisionTreeClassifier( max_leaf_nodes = max_l),n_estimators = args.n_estimators, bootstrap = True, n_jobs = args.n_jobs, bootstrap_features = True)
-                    
-                    if args.use_prune:
-                        XTrain, _, YTrain, _, tmp_train, tmp_prune = train_test_split(X[itrain], Y[itrain], itrain, test_size = 0.33)
-                        trainidx.append(tmp_train)
-                        pruneidx.append(tmp_prune)
-                    else:
-                        XTrain, YTrain = X[itrain], Y[itrain]
-                        trainidx.append(itrain)
-                        pruneidx.append(itrain)
-                    
-                    testidx.append(itest)
-                    base_model.fit(XTrain, YTrain)
-                    estimators.append(copy.deepcopy(base_model.estimators_))
-                    classes.append(base_model.classes_)
-
-                experiment_cfg = {
-                    "dataset":dataset,
-                    "X":X,
-                    "Y":Y,
-                    "trainidx":trainidx,
-                    "testidx":testidx,
-                    "pruneidx":pruneidx,
-                    "repetitions":1 if dataset in ["mnist", "ida2016", "dota2"] else args.xval,
-                    "seed":12345,
-                    "estimators":estimators,
-                    "classes":classes,
-                    "n_classes":len(set(Y)),
-                    "max_leaf_nodes" : max_l,
-                    "base":base
+                common_config = {
+                    "X_train":X_train,
+                    "y_train":y_train,
+                    "X_test":X_test,
+                    "y_test":y_test,
+                    "scoring":scoring,
+                    "max_depth":d
                 }
+                statistics.append(
+                    {
+                        "dataset":dataset,
+                        "N":X_train.shape[0] + X_test.shape[0],
+                        "d":X_train.shape[1],
+                        "C":len(set(y_train)), 
+                        **{"C_{}".format(k) : v/len(y_train) for k,v in class_dist.items()},
+                    }
+                )
+            else:
+                X,Y = data
+                print("Data: ", X.shape, " ", X[0:2,:])
+                class_dist = Counter(sorted(Y))
+                print("Labels: ", Y.shape, " ", class_dist)
+                xval = args.xval
+                kf = StratifiedKFold(n_splits=args.xval, random_state=random_state, shuffle=True)
+                idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
 
-                for K in args.n_prune:
-                    models.append(
+                common_config = {
+                    "X": X,
+                    "Y": Y, 
+                    "scoring":scoring, 
+                    "idx":idx,
+                    "max_depth":d
+                }
+                statistics.append(
+                    {
+                        "dataset":dataset,
+                        "N":X.shape[0],
+                        "d":X.shape[1],
+                        "C":len(set(Y)),
+                        **{"C_{}".format(k) : v/len(Y) for k,v in class_dist.items()}
+                    }
+                )
+            
+            n_jobs_in_pool = args.n_jobs
+
+            #client = Client(n_workers=50) #n_workers = args.n_jobs, threads_per_worker = 1, memory_limit = '32GB
+            parallel_backend("threading") #, args.n_jobs
+
+            print("Preparing experiments")
+            configs = []
+
+            if len(args.l1_reg) == 0:
+                l1_reg = [1e-1]
+            else:
+                l1_reg = args.l1_reg
+
+            # print("AFTER LOADING: {} Mb".format(process.memory_info().rss / 10**6)) 
+            for l in l1_reg:
+                configs.extend(
+                    prepare_xval(
                         {
-                            "model":base,
-                            "model_params":{
-                                "n_estimators":K
-                            },
-                            **experiment_cfg
-                        }
-                    )
-
-                    models.append(
-                        {
-                            "model":"AdaBoostClassifier",
-                            "model_params":{
-                                "n_estimators":K,
-                                "base_estimator":DecisionTreeClassifier(max_leaf_nodes = max_l)
-                            },
-                            **experiment_cfg
-                        }
-                    )
-
-                    models.append(
-                        {
-                            "model":"GradientBoostingClassifier",
-                            "model_params":{
-                                "n_estimators":K,
-                                "max_leaf_nodes":max_l
-                            },
-                            **experiment_cfg
-                        }
-                    )
-
-                    for model in ["individual_contribution", "individual_error",  "reduced_error", "complementariness"]:
-                        models.append(
-                            {
-                                "model":model,
-                                "model_params":{
-                                    "n_estimators":K,
-                                    "n_jobs":1
-                                },
-                                **experiment_cfg
+                            **common_config,
+                            "model": LeafRefinery(
+                                epochs = 1, 
+                                lr = 1e-1, 
+                                batch_size = 1024, 
+                                optimizer = "adam", 
+                                verbose = args.debug,
+                                loss_function = "mse", 
+                                loss_type = "upper", 
+                                l_reg = 1.0,
+                                l1_strength = l,
+                                pruner = "L1"
+                            ),
+                            "additional_infos": {
+                                "dataset":dataset,
+                                "pruning":"L1",
+                                "LR":True,
+                                "max_depth":d,
+                                "l1":l
                             }
+                        }, xval
+                    )
+                )
+            
+            if len(args.n_estimators) == 0:
+                n_estimators = [32]
+            else:
+                n_estimators = args.n_estimators
+
+            configs.extend(
+                prepare_xval(
+                    {
+                        **common_config,
+                        "model": None,
+                        "additional_infos": {
+                            "dataset":dataset,
+                            "LR":False,
+                            "pruning":"RF",
+                            "max_depth":d,
+                            "l1":None,
+                            "rho":None
+                        }
+                    }, xval
+                )
+            )
+
+            for M in n_estimators:
+                for rho in [0.25,0.3,0.35,0.4,0.45,0.5]:
+                    configs.extend(
+                        prepare_xval(
+                            {
+                                **common_config,
+                                "model": LeafRefinery(
+                                    epochs = 1, 
+                                    lr = 1e-1, 
+                                    batch_size = 1024, 
+                                    optimizer = "adam", 
+                                    verbose = args.debug,
+                                    loss_function = "mse", 
+                                    loss_type = "upper", 
+                                    l_reg = 1.0,
+                                    l1_strength = 0,
+                                    pruner = create_pruner(method = "drep", n_estimators = M, **{"metric_options":{"rho":rho}})
+                                ),
+                                "additional_infos": {
+                                    "dataset":dataset,
+                                    "LR":True,
+                                    "pruning":"drep",
+                                    "max_depth":d,
+                                    "l1":None,
+                                    "rho":rho
+                                }
+                            }, xval
                         )
-
-                    models.append(
-                        {
-                            "model":"cluster_accuracy",
-                            "model_params":{
-                                "n_estimators":K,
-                                "cluster_options":{
-                                    "n_jobs":1
-                                }
-                            },
-                            **experiment_cfg
-                        }
                     )
 
-                    models.append(
-                        {
-                            "model":"largest_mean_distance",
-                            "model_params":{
-                                "n_estimators":K,
-                                "selector_options":{
-                                    "n_jobs":1
-                                }
-                            },
-                            **experiment_cfg
-                        }
-                    )
-
-                    rho = [0.25,0.3,0.35,0.4,0.45,0.5]
-                    for r in rho:
-                        models.append(
+                    configs.extend(
+                        prepare_xval(
                             {
-                                "model":"drep",
-                                "model_params":{
-                                    "n_estimators":K,
-                                    "metric_options": {
-                                        "rho": r
-                                    },
-                                    "n_jobs":1
-                                },
-                                **experiment_cfg
-                            }
-                        ) 
-
-                    tmp_cfg = copy.deepcopy(experiment_cfg)
-                    for i in range(len(tmp_cfg["estimators"])):
-                        tmp_cfg["estimators"][i] = tmp_cfg["estimators"][i][0:K]
-
-                    models.append(
-                        {
-                            "model":"LeafRefinement",
-                            "model_params":{
-                                "batch_size" : 128,
-                                "epochs": 50,
-                                "step_size": 1e-1, 
-                                "verbose":False,
-                                "loss":"mse",
-                            },
-                            **tmp_cfg
-                        }
+                                **common_config,
+                                "model": LeafRefinery(
+                                    epochs = 0, 
+                                    lr = 0, 
+                                    batch_size = 1024, 
+                                    optimizer = "adam", 
+                                    verbose = args.debug,
+                                    loss_function = "mse", 
+                                    loss_type = "upper", 
+                                    l_reg = 1.0,
+                                    l1_strength = 0,
+                                    pruner = create_pruner(method = "drep", n_estimators = M, **{"metric_options":{"rho":rho}})
+                                ),
+                                "additional_infos": {
+                                    "dataset":dataset,
+                                    "LR":False,
+                                    "pruning":"drep",
+                                    "max_depth":d,
+                                    "l1":None,
+                                    "rho":rho
+                                }
+                            }, xval
+                        )
                     )
 
-        random.shuffle(models)
-        run_experiments(basecfg, models)
+                for pname, poptions in [
+                    ("individual_contribution",{"n_jobs":1}),
+                    ("individual_error",{"n_jobs":1}),
+                    ("reduced_error",{"n_jobs":1}),
+                    ("complementariness",{"n_jobs":1}),
+                    ("random",{}),
+                    ("cluster_accuracy",{}), #{"cluster_options":{"n_jobs":1}}
+                    ("largest_mean_distance",{"selector_options":{"n_jobs":1}})
+                    ]:
+                    configs.extend(
+                        prepare_xval(
+                            {
+                                **common_config,
+                                "model": LeafRefinery(
+                                    epochs = 1, 
+                                    lr = 1e-1, 
+                                    batch_size = 1024, 
+                                    optimizer = "adam", 
+                                    verbose = args.debug,
+                                    loss_function = "mse", 
+                                    loss_type = "upper", 
+                                    l_reg = 1.0,
+                                    l1_strength = 0,
+                                    pruner = create_pruner(method = pname, n_estimators = M, **poptions)
+                                ),
+                                "additional_infos": {
+                                    "dataset":dataset,
+                                    "pruning":pname,
+                                    "LR":True,
+                                    "max_depth":d,
+                                    "l1":None,
+                                    "rho":None
+                                }
+                            }, xval
+                        )
+                    )
+
+                    configs.extend(
+                        prepare_xval(
+                            {
+                                **common_config,
+                                "model": LeafRefinery(
+                                    epochs = 0, 
+                                    lr = 0, 
+                                    batch_size = 1024, 
+                                    optimizer = "adam", 
+                                    verbose = args.debug,
+                                    loss_function = "mse", 
+                                    loss_type = "upper", 
+                                    l_reg = 1.0,
+                                    l1_strength = 0,
+                                    pruner = create_pruner(method = pname, n_estimators = M, **poptions)
+                                ),
+                                "additional_infos": {
+                                    "dataset":dataset,
+                                    "pruning":pname,
+                                    "LR":False,
+                                    "max_depth":d,
+                                    "l1":None,
+                                    "rho":None
+                                }
+                            }, xval
+                        )
+                    )
+                
+
+        # print("BEFORE DEBUG: {} Mb".format(process.memory_info().rss / 10**6)) 
+
+        if args.debug:
+            delayed_metrics = []
+            for cfg in configs:
+                delayed_metrics.append(run_eval(cfg))
+        else:
+            print("Configured {} experiments. Starting experiments now using {} jobs.".format(len(configs), n_jobs_in_pool))
+            pool = Pool(n_jobs_in_pool)
+            delayed_metrics = []
+            for eval_return in tqdm(pool.imap_unordered(run_eval, configs), total=len(configs)):
+                delayed_metrics.append(eval_return)
+        
+        metrics = []
+        names = list(set(["_".join([str(val) for val in cfg.values()]) for _, cfg in delayed_metrics]))
+        for n in names:
+            tmp = [scores for scores, cfg in delayed_metrics if "_".join([str(val) for val in cfg.values()]) == n]
+            cfg = [cfg for _, cfg in delayed_metrics if "_".join([str(val) for val in cfg.values()]) == n][0]
+
+            metrics.append(
+                {
+                    **beautify_scores(merge_dictionaries(tmp)),
+                    **cfg
+                }
+            )
+             
+        df = pd.DataFrame(metrics)
+        df = df.sort_values(by=["dataset", "n_estimators", "max_depth", "pruning", "LR", "l1", "rho"])
+        df.to_csv("{}.csv".format(dataset),index=False)
+        with pd.option_context('display.max_rows', None): 
+            print(df[["dataset", "pruning", "LR", "n_estimators", "max_depth", "l1", "rho", "train_time_sec", "train_accuracy", "accuracy"]])
+        
+        all_df.append(df)
+    
+    df = pd.concat(all_df)
+    df.to_csv("experiment_{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")),index=False)
+
+    sdf = pd.DataFrame(statistics)
+    sdf.to_csv("datasets_experiment_{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")), index=False)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-j", "--n_jobs", help="No of jobs for processing pool",type=int, default=1)
-    parser.add_argument("-b", "--base", help="Base learner ued for experiments. Can be {{RandomForestClassifier, ExtraTreesClassifier, BaggingClassifier, HeterogenousForest}}",type=str, nargs='+', default=["RandomForestClassifier"])
-    parser.add_argument("--nl", help="Maximum number of leaf nodes (corresponds to scikit-learns max_leaf_nodes parameter)", nargs='+', type=int)
-    parser.add_argument("-d", "--dataset", help="Dataset used for experiments",type=str, default=["wine-quality"], nargs='+')
-    parser.add_argument("-n", "--n_estimators", help="Number of estimators trained for the base learner.", type=int, default=64)
-    parser.add_argument("-K", "--n_prune", help="Size of the pruned ensemble. Can be a list for multiple experiments.",nargs='+', type=int, default=[32])
-    parser.add_argument("-x", "--xval", help="Number of X-val runs",type=int, default=5)
-    parser.add_argument("-p", "--use_prune", help="Use a train / prune / test split. If false, the training data is also used for pruning", action="store_true", default=False)
-    parser.add_argument("-t", "--timeout", help="Maximum number of seconds per run. If the runtime exceeds the provided value, stop execution",type=int, default=6000)
+    parser.add_argument("--max_depth", help="Maximum depth of trees. Can be a list of arguments for multiple experiments", nargs='+', type=int, default=[])
+    parser.add_argument("-d", "--dataset", help="Dataset used for experiments. Can be a list of arguments for multiple dataset. Have a look at datasets.py for all supported datasets.",type=str, default=["magic"], nargs='+')
+    parser.add_argument("-M", "--n_estimators", help="Number of estimators in the forest.", nargs='+', type=int, default=[])
+    parser.add_argument("-x", "--xval", help="Number of cross-validation runs if the dataset does not contain a train/test split.",type=int, default=5)
+    parser.add_argument("-t", "--tmpdir", help="Temporary folder in which datasets should be stored.",type=str, default=None)
+    parser.add_argument("-l", "--l1_reg", help="L1 regs.",nargs='+', default=[], type=float)
+    parser.add_argument("--debug", help="Execute all experiments one by one with better stack traces.", action='store_true')
     args = parser.parse_args()
+    
+    # args.data = "magic"
+    # args.x = 2
+    #args.max_depth = [10]
+    #args.debug = True
 
     main(args)
