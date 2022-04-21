@@ -201,8 +201,11 @@ def prox(w, prox_type, normalize, l_reg, step_size, lam):
 
 class LeafRefinery(nn.Module):
 
-    def __init__(self, epochs, lr, batch_size, optimizer, verbose,loss_function = "mse", loss_type = "upper", l_reg = 1.0, base_forest = {}, l1_strength = 0, pruner = "L1"):#, ensemble_regularizer = "none"):
+    def __init__(self, epochs, lr, batch_size, optimizer, verbose,loss_function = "mse", loss_type = "upper", l_reg = 1.0, base_forest = {}, l1_strength = 0, pruner = "L1", n_jobs = 1, leaf_refinement=True):#, ensemble_regularizer = "none"):
         super().__init__()
+
+        if n_jobs is not None:
+            torch.set_num_threads(n_jobs)
 
         assert loss_function in ["mse", "nll", "cross-entropy"], "LeafRefinery only supports the {{mse, nll, cross-entropy}} loss but you gave {}".format(loss_function)
         assert lr >= 0, "Learning rate must be positive, but you gave {}".format(lr)
@@ -231,16 +234,26 @@ class LeafRefinery(nn.Module):
         # self.ensemble_regularizer = "L1"
         self.l_ensemble_reg = l1_strength
         self.pruner = pruner
+        self.leaf_refinement = leaf_refinement
         if pruner == "L1":
             self.ensemble_regularizer = "L1"
+        elif pruner == "hard-L0":
+            self.ensemble_regularizer = "hard-L0"
+            self.normalize_weights = True
         else:
             self.ensemble_regularizer = "none"
 
     def predict_proba(self, X):
-        proba = []
-        for h, w in zip(self.trees, self.weights):
-            proba.append(w * h.predict_proba(X))
-        return np.stack(proba).mean(axis=0)
+        if len(self.trees) == 0:
+            y_default = np.array([1.0 / self.n_classes_ for _ in range(self.n_classes_)])
+            for _ in X:
+                proba.append(y_default)
+            return np.array(proba)
+        else:
+            proba = []
+            for h, w in zip(self.trees, self.weights):
+                proba.append(w * h.predict_proba(X))
+            return np.stack(proba).mean(axis=0)
         
     def predict(self, X):
         return self.predict_proba(X).argmax(axis=1)
@@ -332,6 +345,9 @@ class LeafRefinery(nn.Module):
         self.prune(X,Y,self.forest.estimators_, self.forest.classes_, self.forest.n_classes_)
 
     def prune(self, X, Y, estimators, classes, n_classes):
+        self.n_classes_ = n_classes
+        self.classes_ = classes
+
         if self.batch_size > X.shape[0]:
             if self.verbose:
                 print("WARNING: The batch size for SGD is larger than the dataset supplied: batch_size = {} > X.shape[0] = {}. Using batch_size = X.shape[0]".format(self.batch_size, X.shape[0]))
@@ -346,13 +362,12 @@ class LeafRefinery(nn.Module):
         # pruning => refinement => 
         # joint via L1
         self.trees = [Tree(e, None) for e in estimators] 
-        if self.pruner != "L1":
+        if self.pruner != "L1" and self.pruner != "hard-L0":
             self.pruner.prune(X,Y,self.trees, classes, n_classes)
             self.trees, weights = self.pruner.estimators_, np.array(self.pruner.weights_)
         else:
             weights = np.repeat(1.0/len(self.trees), len(self.trees))
         n_trees = len(self.trees)
-
         # if self.ensemble_regularizer == "random":
         #     self.trees = self.trees[:self.l_ensemble_reg]
 
@@ -366,7 +381,7 @@ class LeafRefinery(nn.Module):
         #         node_counts.append(d)
         # node_counts = torch.as_tensor(node_counts)
         
-        print("STARTING WITH {} TREES".format(n_trees))
+        # print("STARTING WITH {} TREES".format(n_trees))
 
         torch_leafs = []
         for h in self.trees:
@@ -374,6 +389,10 @@ class LeafRefinery(nn.Module):
             torch_leafs.append(nn.Parameter(torch.from_numpy(tmp.squeeze(1))))
 
         self.torch_leafs = nn.ParameterList(torch_leafs)
+        if not self.leaf_refinement:
+            for i in range(len(self.torch_leafs)):
+                self.torch_leafs[i].requires_grad = False
+
         self.torch_weights = nn.Parameter(torch.from_numpy(weights))
         node_counts = torch.as_tensor([h.n_nodes for h in self.trees])
 
@@ -401,7 +420,7 @@ class LeafRefinery(nn.Module):
                         pred.append(self.torch_weights[i] * self.torch_leafs[i][idx,:])
                     fbar = torch.stack(pred).mean(axis=0)
 
-                    loss = self.compute_loss(fbar, pred, torch.tensor(y)) #+ 1e-1*(node_counts * self.torch_weights**2).sum()
+                    loss = self.compute_loss(fbar, pred, torch.tensor(y).long()) #+ 1e-1*(node_counts * self.torch_weights**2).sum()
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
@@ -432,7 +451,16 @@ class LeafRefinery(nn.Module):
                     )
                     pbar.set_description(desc)
 
+        trees = []
+        weights = []
         for i in range(n_trees):
-            leafs = torch_leafs[i].detach().numpy()
-            self.trees[i].model.tree_.value[:] = leafs[:,np.newaxis]
-        self.weights = self.torch_weights.detach().numpy()
+            w = self.torch_weights[i].detach().numpy()
+            if w != 0:
+                leafs = torch_leafs[i].detach().numpy()
+                self.trees[i].model.tree_.value[:] = leafs[:,np.newaxis]
+                trees.append(self.trees[i])
+                weights.append(w)
+        
+        self.weights = weights
+        self.trees = trees
+        

@@ -13,6 +13,7 @@ from sklearn.tree import ExtraTreeClassifier
 from tqdm import tqdm
 from datetime import datetime
 from collections import Counter
+from random import shuffle
 import os, psutil
 from PyPruning.Papers import create_pruner 
 
@@ -26,13 +27,23 @@ from Datasets import get_dataset
 
 # from Metrics import accuracy, avg_accuracy, avg_rademacher, c_bound, n_nodes, n_leaves, effective_height, soft_hinge, mse, bias, diversity
 
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 
 def accuracy(model, X, target):
     return 100.0*accuracy_score(target, model.predict(X))
 
+def f1(model, X, target):
+    return f1_score(target, model.predict(X), average="macro")
+
 def get_n_estimators(model, X, target):
     return len(model.trees) if hasattr(model, "trees") else len(model.estimators_)
+
+def get_n_nodes(model, X, target):
+    return sum([e.n_nodes for e in model.trees]) if hasattr(model, "trees") else sum([e.tree_.node_count for e in model.estimators_])
+
+def get_size_kb(model, X, target):
+    n_nodes = get_n_nodes(model, X, target)
+    return n_nodes * (17 + 4*model.n_classes_ )  / 1024.0
 
 def beautify_scores(scores):
     """Remove test_ in all scores for a nicer output and compute the mean of each score.
@@ -48,7 +59,6 @@ def beautify_scores(scores):
         if "test" in key:
             key = key.replace("test_","")
 
-        print(key, ":", val)
         nice_scores[key] = np.mean(val)
     return nice_scores
 
@@ -98,30 +108,24 @@ def run_eval(cfg):
             # ....
         }. The second dictionary contains the additional_infos passed to this function. 
     """
-    model, scoring, additional_infos, rid, d = cfg["model"], cfg["scoring"], cfg["additional_infos"], cfg["run_id"], cfg["max_depth"]
+    model, scoring, additional_infos, rid, forest = cfg["model"], cfg["scoring"], cfg["additional_infos"], cfg["run_id"], cfg["forest"]
 
     if "idx" in cfg:
         X, Y, idx = cfg["X"], cfg["Y"], cfg["idx"]
         train, test = idx[rid]
         XTrain, YTrain = X[train,:], Y[train]
         XTest, YTest = X[test,:], Y[test]
+        base = forest[rid]
     else:
         XTrain, YTrain = cfg["X_train"], cfg["y_train"]
         XTest, YTest = cfg["X_test"], cfg["y_test"]
-
-    from sklearn.preprocessing import MinMaxScaler
-    scaler = MinMaxScaler()
-    XTrain = scaler.fit_transform(XTrain)
-    XTest = scaler.transform(XTest)
+        base = forest
     
     import os, psutil
     process = psutil.Process(os.getpid())
     # print("BEFORE FIT: {} Mb".format(process.memory_info().rss / 10**6)) 
 
     start = time.time()
-    base = RandomForestClassifier(n_estimators=16, max_depth=d, bootstrap = True, random_state=42) 
-    base.fit(XTrain, YTrain)
-
     if model is None:
         model = base
     else:
@@ -132,7 +136,7 @@ def run_eval(cfg):
     for name, method in scoring.items():
         scores["test_{}".format(name)] = method(model, XTest, YTest)
         scores["train_{}".format(name)] = method(model, XTrain, YTrain)
-
+    
     scores["train_time_sec"] = end - start 
     return scores, additional_infos
 
@@ -160,10 +164,35 @@ def main(args):
     all_df = []
     statistics = []
 
-    if len(args.max_depth) == 0:
-        max_depth = [None]
+    if len(args.max_leafs) == 0:
+        max_leafs = [None]
     else:
-        max_depth = args.max_depth
+        max_leafs = args.max_leafs
+
+    if len(args.l1_reg) == 0:
+        l1_reg = [1e-1]
+    else:
+        l1_reg = args.l1_reg
+
+    if len(args.n_estimators) == 0:
+        n_estimators = [32]
+    else:
+        n_estimators = args.n_estimators
+
+    max_n_estimators = max(n_estimators)
+
+    n_jobs_in_pool = args.n_jobs
+
+    #client = Client(n_workers=50) #n_workers = args.n_jobs, threads_per_worker = 1, memory_limit = '32GB
+    parallel_backend("threading") #, args.n_jobs
+
+    scoring = {
+        "accuracy":accuracy,
+        "n_estimators":get_n_estimators,
+        "size_kb": get_size_kb,
+        "n_nodes": get_n_nodes,
+        "f1":f1 
+    }
 
     for dataset in args.dataset:
         data = get_dataset(dataset, args.tmpdir)
@@ -171,29 +200,37 @@ def main(args):
             print("ERROR downloading {}. Skipping".format(dataset))
             continue
 
-        for d in max_depth:
-            scoring = {
-                "accuracy":accuracy,
-                "n_estimators":get_n_estimators
-            }
+        print("Dataset: {}".format(dataset))
+        if len(data) == 4:
+            X_train,y_train,X_test,y_test = data
+            class_dist = Counter(sorted(y_train))
+            print("Data: ", X_train.shape, " ", X_train[0:2,:])
+            print("Labels: ", y_train.shape, " ", class_dist )
+            xval = 1
+        else:
+            X,Y = data
+            print("Data: ", X.shape, " ", X[0:2,:])
+            class_dist = Counter(sorted(Y))
+            print("Labels: ", Y.shape, " ", class_dist)
+            xval = args.xval
+            kf = StratifiedKFold(n_splits=args.xval, random_state=random_state, shuffle=True)
+            idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
+
+        configs = []
+        for nl in max_leafs:
             process = psutil.Process(os.getpid())
-            print("BEFORE LOADING: {} Mb".format(process.memory_info().rss / 10**6)) 
+            # print("BEFORE LOADING: {} Mb".format(process.memory_info().rss / 10**6)) 
 
-            print("Dataset: {}".format(dataset))
             if len(data) == 4:
-                X_train,y_train,X_test,y_test = data
-                class_dist = Counter(sorted(y_train))
-                print("Data: ", X_train.shape, " ", X_train[0:2,:])
-                print("Labels: ", y_train.shape, " ", class_dist )
-                xval = 1
-
+                base = RandomForestClassifier(n_estimators=max_n_estimators, max_leaf_nodes=nl, bootstrap = True, random_state=42) 
+                base.fit(X_train, y_train)
                 common_config = {
                     "X_train":X_train,
                     "y_train":y_train,
                     "X_test":X_test,
                     "y_test":y_test,
                     "scoring":scoring,
-                    "max_depth":d
+                    "forest":base
                 }
                 statistics.append(
                     {
@@ -205,20 +242,18 @@ def main(args):
                     }
                 )
             else:
-                X,Y = data
-                print("Data: ", X.shape, " ", X[0:2,:])
-                class_dist = Counter(sorted(Y))
-                print("Labels: ", Y.shape, " ", class_dist)
-                xval = args.xval
-                kf = StratifiedKFold(n_splits=args.xval, random_state=random_state, shuffle=True)
-                idx = np.array([(train_idx, test_idx) for train_idx, test_idx in kf.split(X, Y)], dtype=object)
-
+                forest = []
+                for itrain, _ in idx:
+                    rf = RandomForestClassifier(n_estimators=max_n_estimators,  max_leaf_nodes=nl, bootstrap = True, random_state=42) 
+                    rf.fit(X[itrain, :], Y[itrain])
+                    forest.append(rf)
+                
                 common_config = {
                     "X": X,
                     "Y": Y, 
                     "scoring":scoring, 
                     "idx":idx,
-                    "max_depth":d
+                    "forest":forest
                 }
                 statistics.append(
                     {
@@ -229,19 +264,24 @@ def main(args):
                         **{"C_{}".format(k) : v/len(Y) for k,v in class_dist.items()}
                     }
                 )
-            
-            n_jobs_in_pool = args.n_jobs
 
-            #client = Client(n_workers=50) #n_workers = args.n_jobs, threads_per_worker = 1, memory_limit = '32GB
-            parallel_backend("threading") #, args.n_jobs
-
-            print("Preparing experiments")
-            configs = []
-
-            if len(args.l1_reg) == 0:
-                l1_reg = [1e-1]
-            else:
-                l1_reg = args.l1_reg
+            # configs.extend(
+            #     prepare_xval(
+            #         {
+            #             **common_config,
+            #             "model": None,
+            #             "additional_infos": {
+            #                 "dataset":dataset,
+            #                 "LR":False,
+            #                 "pruning":"RF",
+            #                 "max_leafs":nl,
+            #                 "l1":None,
+            #                 "rho":None,
+            #                 "K":None
+            #             }
+            #         }, xval
+            #     )
+            # )
 
             # print("AFTER LOADING: {} Mb".format(process.memory_info().rss / 10**6)) 
             for l in l1_reg:
@@ -250,7 +290,7 @@ def main(args):
                         {
                             **common_config,
                             "model": LeafRefinery(
-                                epochs = 1, 
+                                epochs = 50, 
                                 lr = 1e-1, 
                                 batch_size = 1024, 
                                 optimizer = "adam", 
@@ -259,163 +299,268 @@ def main(args):
                                 loss_type = "upper", 
                                 l_reg = 1.0,
                                 l1_strength = l,
-                                pruner = "L1"
+                                pruner = "L1",
+                                leaf_refinement=True
                             ),
                             "additional_infos": {
                                 "dataset":dataset,
                                 "pruning":"L1",
                                 "LR":True,
-                                "max_depth":d,
-                                "l1":l
+                                "max_leafs":nl,
+                                "l1":l,
+                                "K":None,
+                                "rho":None
                             }
                         }, xval
                     )
                 )
-            
-            if len(args.n_estimators) == 0:
-                n_estimators = [32]
-            else:
-                n_estimators = args.n_estimators
 
-            configs.extend(
-                prepare_xval(
-                    {
-                        **common_config,
-                        "model": None,
-                        "additional_infos": {
-                            "dataset":dataset,
-                            "LR":False,
-                            "pruning":"RF",
-                            "max_depth":d,
-                            "l1":None,
-                            "rho":None
-                        }
-                    }, xval
+                configs.extend(
+                    prepare_xval(
+                        {
+                            **common_config,
+                            "model": LeafRefinery(
+                                epochs = 50, 
+                                lr = 1e-1, 
+                                batch_size = 1024, 
+                                optimizer = "adam", 
+                                verbose = args.debug,
+                                loss_function = "mse", 
+                                loss_type = "upper", 
+                                l_reg = 1.0,
+                                l1_strength = l,
+                                pruner = "L1",
+                                leaf_refinement=False
+                            ),
+                            "additional_infos": {
+                                "dataset":dataset,
+                                "pruning":"L1",
+                                "LR":False,
+                                "max_leafs":nl,
+                                "l1":l,
+                                "K":None,
+                                "rho":None
+                            }
+                        }, xval
+                    )
                 )
-            )
 
-            for M in n_estimators:
-                for rho in [0.25,0.3,0.35,0.4,0.45,0.5]:
-                    configs.extend(
-                        prepare_xval(
-                            {
-                                **common_config,
-                                "model": LeafRefinery(
-                                    epochs = 1, 
-                                    lr = 1e-1, 
-                                    batch_size = 1024, 
-                                    optimizer = "adam", 
-                                    verbose = args.debug,
-                                    loss_function = "mse", 
-                                    loss_type = "upper", 
-                                    l_reg = 1.0,
-                                    l1_strength = 0,
-                                    pruner = create_pruner(method = "drep", n_estimators = M, **{"metric_options":{"rho":rho}})
-                                ),
-                                "additional_infos": {
-                                    "dataset":dataset,
-                                    "LR":True,
-                                    "pruning":"drep",
-                                    "max_depth":d,
-                                    "l1":None,
-                                    "rho":rho
-                                }
-                            }, xval
-                        )
-                    )
+            # for K in n_estimators:
+                # configs.extend(
+                #     prepare_xval(
+                #         {
+                #             **common_config,
+                #             "model": LeafRefinery(
+                #                 epochs = 50, 
+                #                 lr = 1e-1, 
+                #                 batch_size = 1024, 
+                #                 optimizer = "adam", 
+                #                 verbose = args.debug,
+                #                 loss_function = "mse", 
+                #                 loss_type = "upper", 
+                #                 l_reg = 1.0,
+                #                 l1_strength = K,
+                #                 leaf_refinement=True,
+                #                 pruner = "hard-L0"
+                #             ),
+                #             "additional_infos": {
+                #                 "dataset":dataset,
+                #                 "pruning":"L0",
+                #                 "LR":True,
+                #                 "max_leafs":nl,
+                #                 "l1":K,
+                #                 "rho":None,
+                #                 "K":K
+                #             }
+                #         }, xval
+                #     )
+                # )
 
-                    configs.extend(
-                        prepare_xval(
-                            {
-                                **common_config,
-                                "model": LeafRefinery(
-                                    epochs = 0, 
-                                    lr = 0, 
-                                    batch_size = 1024, 
-                                    optimizer = "adam", 
-                                    verbose = args.debug,
-                                    loss_function = "mse", 
-                                    loss_type = "upper", 
-                                    l_reg = 1.0,
-                                    l1_strength = 0,
-                                    pruner = create_pruner(method = "drep", n_estimators = M, **{"metric_options":{"rho":rho}})
-                                ),
-                                "additional_infos": {
-                                    "dataset":dataset,
-                                    "LR":False,
-                                    "pruning":"drep",
-                                    "max_depth":d,
-                                    "l1":None,
-                                    "rho":rho
-                                }
-                            }, xval
-                        )
-                    )
+                # configs.extend(
+                #     prepare_xval(
+                #         {
+                #             **common_config,
+                #             "model": LeafRefinery(
+                #                 epochs = 50, 
+                #                 lr = 1e-1, 
+                #                 batch_size = 1024, 
+                #                 optimizer = "adam", 
+                #                 verbose = args.debug,
+                #                 loss_function = "mse", 
+                #                 loss_type = "upper", 
+                #                 l_reg = 1.0,
+                #                 l1_strength = K,
+                #                 leaf_refinement=False,
+                #                 pruner = "hard-L0"
+                #             ),
+                #             "additional_infos": {
+                #                 "dataset":dataset,
+                #                 "pruning":"L0",
+                #                 "LR":False,
+                #                 "max_leafs":nl,
+                #                 "l1":K,
+                #                 "rho":None,
+                #                 "K":K
+                #             }
+                #         }, xval
+                #     )
+                # )
 
-                for pname, poptions in [
-                    ("individual_contribution",{"n_jobs":1}),
-                    ("individual_error",{"n_jobs":1}),
-                    ("reduced_error",{"n_jobs":1}),
-                    ("complementariness",{"n_jobs":1}),
-                    ("random",{}),
-                    ("cluster_accuracy",{}), #{"cluster_options":{"n_jobs":1}}
-                    ("largest_mean_distance",{"selector_options":{"n_jobs":1}})
-                    ]:
-                    configs.extend(
-                        prepare_xval(
-                            {
-                                **common_config,
-                                "model": LeafRefinery(
-                                    epochs = 1, 
-                                    lr = 1e-1, 
-                                    batch_size = 1024, 
-                                    optimizer = "adam", 
-                                    verbose = args.debug,
-                                    loss_function = "mse", 
-                                    loss_type = "upper", 
-                                    l_reg = 1.0,
-                                    l1_strength = 0,
-                                    pruner = create_pruner(method = pname, n_estimators = M, **poptions)
-                                ),
-                                "additional_infos": {
-                                    "dataset":dataset,
-                                    "pruning":pname,
-                                    "LR":True,
-                                    "max_depth":d,
-                                    "l1":None,
-                                    "rho":None
-                                }
-                            }, xval
-                        )
-                    )
+                # configs.extend(
+                #     prepare_xval(
+                #         {
+                #             **common_config,
+                #             "model": LeafRefinery(
+                #                 epochs = 50, 
+                #                 lr = 1e-1, 
+                #                 batch_size = 1024, 
+                #                 optimizer = "adam", 
+                #                 verbose = args.debug,
+                #                 loss_function = "mse", 
+                #                 loss_type = "upper", 
+                #                 l_reg = 1.0,
+                #                 l1_strength = 0,
+                #                 leaf_refinement=True,
+                #                 pruner = create_pruner(method = "random", n_estimators = K)
+                #             ),
+                #             "additional_infos": {
+                #                 "dataset":dataset,
+                #                 "pruning":"random",
+                #                 "LR":True,
+                #                 "max_leafs":nl,
+                #                 "l1":None,
+                #                 "rho":None,
+                #                 "K":K
+                #             }
+                #         }, xval
+                #     )
+                # )
 
-                    configs.extend(
-                        prepare_xval(
-                            {
-                                **common_config,
-                                "model": LeafRefinery(
-                                    epochs = 0, 
-                                    lr = 0, 
-                                    batch_size = 1024, 
-                                    optimizer = "adam", 
-                                    verbose = args.debug,
-                                    loss_function = "mse", 
-                                    loss_type = "upper", 
-                                    l_reg = 1.0,
-                                    l1_strength = 0,
-                                    pruner = create_pruner(method = pname, n_estimators = M, **poptions)
-                                ),
-                                "additional_infos": {
-                                    "dataset":dataset,
-                                    "pruning":pname,
-                                    "LR":False,
-                                    "max_depth":d,
-                                    "l1":None,
-                                    "rho":None
-                                }
-                            }, xval
-                        )
-                    )
+                #for rho in [0.25,0.3,0.35,0.4,0.45,0.5]:
+                    # configs.extend(
+                    #     prepare_xval(
+                    #         {
+                    #             **common_config,
+                    #             "model": LeafRefinery(
+                    #                 epochs = 50, 
+                    #                 lr = 1e-1, 
+                    #                 batch_size = 1024, 
+                    #                 optimizer = "adam", 
+                    #                 verbose = args.debug,
+                    #                 loss_function = "mse", 
+                    #                 loss_type = "upper", 
+                    #                 l_reg = 1.0,
+                    #                 l1_strength = 0,
+                    #                 pruner = create_pruner(method = "drep", n_estimators = K, **{"metric_options":{"rho":rho}})
+                    #             ),
+                    #             "additional_infos": {
+                    #                 "dataset":dataset,
+                    #                 "LR":True,
+                    #                 "pruning":"drep",
+                    #                 "max_leafs":nl,
+                    #                 "l1":None,
+                    #                 "rho":rho,
+                    #                 "K":K
+                    #             }
+                    #         }, xval
+                    #     )
+                    # )
+
+                    # configs.extend(
+                    #     prepare_xval(
+                    #         {
+                    #             **common_config,
+                    #             "model": LeafRefinery(
+                    #                 epochs = 0, 
+                    #                 lr = 0, 
+                    #                 batch_size = 1024, 
+                    #                 optimizer = "adam", 
+                    #                 verbose = args.debug,
+                    #                 loss_function = "mse", 
+                    #                 loss_type = "upper", 
+                    #                 l_reg = 1.0,
+                    #                 l1_strength = 0,
+                    #                 pruner = create_pruner(method = "drep", n_estimators = K, **{"metric_options":{"rho":rho}})
+                    #             ),
+                    #             "additional_infos": {
+                    #                 "dataset":dataset,
+                    #                 "LR":False,
+                    #                 "pruning":"drep",
+                    #                 "max_leafs":nl,
+                    #                 "l1":None,
+                    #                 "rho":rho,
+                    #                 "K":K
+                    #             }
+                    #         }, xval
+                    #     )
+                    # )
+
+                # for pname, poptions in [
+                #     ("individual_contribution",{"n_jobs":1}),
+                #     ("individual_error",{"n_jobs":1}),
+                #     ("reduced_error",{"n_jobs":1}),
+                #     ("complementariness",{"n_jobs":1}),
+                #     ("random",{}),
+                #     ("largest_mean_distance",{"selector_options":{"n_jobs":1}})
+                #     ]:
+                #     # configs.extend(
+                #     #     prepare_xval(
+                #     #         {
+                #     #             **common_config,
+                #     #             "model": LeafRefinery(
+                #     #                 epochs = 50, 
+                #     #                 lr = 1e-1, 
+                #     #                 batch_size = 1024, 
+                #     #                 optimizer = "adam", 
+                #     #                 verbose = args.debug,
+                #     #                 loss_function = "mse", 
+                #     #                 loss_type = "upper", 
+                #     #                 l_reg = 1.0,
+                #     #                 l1_strength = 0,
+                #     #                 pruner = create_pruner(method = pname, n_estimators = K, **poptions)
+                #     #             ),
+                #     #             "additional_infos": {
+                #     #                 "dataset":dataset,
+                #     #                 "pruning":pname,
+                #     #                 "LR":True,
+                #     #                 "max_leafs":nl,
+                #     #                 "l1":None,
+                #     #                 "rho":None,
+                #     #                 "K":K
+                #     #             }
+                #     #         }, xval
+                #     #     )
+                #     # )
+
+                #     configs.extend(
+                #         prepare_xval(
+                #             {
+                #                 **common_config,
+                #                 "model": LeafRefinery(
+                #                     epochs = 0, 
+                #                     lr = 0, 
+                #                     batch_size = 1024, 
+                #                     optimizer = "adam", 
+                #                     verbose = args.debug,
+                #                     loss_function = "mse", 
+                #                     loss_type = "upper", 
+                #                     l_reg = 1.0,
+                #                     l1_strength = 0,
+                #                     leaf_refinement=False,
+                #                     pruner = create_pruner(method = pname, n_estimators = K, **poptions)
+                #                 ),
+                #                 "additional_infos": {
+                #                     "dataset":dataset,
+                #                     "pruning":pname,
+                #                     "LR":False,
+                #                     "max_leafs":nl,
+                #                     "l1":None,
+                #                     "rho":None,
+                #                     "K":K
+                #                 }
+                #             }, xval
+                #         )
+                #     )
                 
 
         # print("BEFORE DEBUG: {} Mb".format(process.memory_info().rss / 10**6)) 
@@ -428,6 +573,8 @@ def main(args):
             print("Configured {} experiments. Starting experiments now using {} jobs.".format(len(configs), n_jobs_in_pool))
             pool = Pool(n_jobs_in_pool)
             delayed_metrics = []
+            
+            shuffle(configs)
             for eval_return in tqdm(pool.imap_unordered(run_eval, configs), total=len(configs)):
                 delayed_metrics.append(eval_return)
         
@@ -445,23 +592,23 @@ def main(args):
             )
              
         df = pd.DataFrame(metrics)
-        df = df.sort_values(by=["dataset", "n_estimators", "max_depth", "pruning", "LR", "l1", "rho"])
-        df.to_csv("{}.csv".format(dataset),index=False)
+        df = df.sort_values(by=["dataset", "n_estimators", "max_leafs", "pruning", "LR", "l1", "rho", "K"])
+        df.to_csv("{}_{}.csv".format(dataset, datetime.now().strftime("%d-%m-%Y-%H:%M")),index=False)
         with pd.option_context('display.max_rows', None): 
-            print(df[["dataset", "pruning", "LR", "n_estimators", "max_depth", "l1", "rho", "train_time_sec", "train_accuracy", "accuracy"]])
+            print(df[["dataset", "pruning", "LR", "n_estimators", "max_leafs", "l1", "rho", "K", "train_time_sec", "train_accuracy","size_kb","n_nodes","f1", "accuracy"]])
         
         all_df.append(df)
     
     df = pd.concat(all_df)
-    df.to_csv("experiment_{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")),index=False)
+    df.to_csv("{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")),index=False)
 
     sdf = pd.DataFrame(statistics)
-    sdf.to_csv("datasets_experiment_{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")), index=False)
+    sdf.to_csv("datasets_{}.csv".format(datetime.now().strftime("%d-%m-%Y-%H:%M")), index=False)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-j", "--n_jobs", help="No of jobs for processing pool",type=int, default=1)
-    parser.add_argument("--max_depth", help="Maximum depth of trees. Can be a list of arguments for multiple experiments", nargs='+', type=int, default=[])
+    parser.add_argument("--max_leafs", help="Maximum number of leaf nodes. Can be a list of arguments for multiple experiments", nargs='+', type=int, default=[])
     parser.add_argument("-d", "--dataset", help="Dataset used for experiments. Can be a list of arguments for multiple dataset. Have a look at datasets.py for all supported datasets.",type=str, default=["magic"], nargs='+')
     parser.add_argument("-M", "--n_estimators", help="Number of estimators in the forest.", nargs='+', type=int, default=[])
     parser.add_argument("-x", "--xval", help="Number of cross-validation runs if the dataset does not contain a train/test split.",type=int, default=5)
@@ -470,9 +617,4 @@ if __name__ == '__main__':
     parser.add_argument("--debug", help="Execute all experiments one by one with better stack traces.", action='store_true')
     args = parser.parse_args()
     
-    # args.data = "magic"
-    # args.x = 2
-    #args.max_depth = [10]
-    #args.debug = True
-
     main(args)

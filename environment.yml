@@ -2,22 +2,24 @@ name: lr
 channels:
   - pytorch
   - conda-forge
-  - gurobi
 dependencies:
   - python=3.8
   - numpy
-  - pylint
-  - pip
   - pandas
-  - setuptools
-  - matplotlib
-  - jupyter
-  - gurobi
-  - openpyxl
+  - scipy
+  - scikit-learn
   - pytorch 
   - torchvision 
   - torchaudio 
+  - cpuonly
+  - setuptools
+  - matplotlib
+  - julia
+  # - pylint
+  # - gurobi
+  # - openpyxl
   - pip
   - pip:
+    - psutil
     - scikit_posthocs
 #    - pip install https://github.com/sbuschjaeger/PyPruning.git

@@ -163,7 +163,7 @@ def get_dataset(dataset, tmpdir = None):
         weather_path = download("https://github.com/scikit-multiflow/streaming-datasets/blob/master/weather.csv?raw=true", "weather.csv", tmpdir)
 
         df = pd.read_csv(weather_path)
-        Y = df["target"].values.astype(np.int32)
+        Y = df["target"].values#.astype(np.int32)
         df = df.drop(["target"], axis=1)
         X = df.values.astype(np.float64)
     elif dataset == "covtype":
@@ -207,7 +207,7 @@ def get_dataset(dataset, tmpdir = None):
             with gzip.open(images_path, 'rb') as imgpath:
                 images = np.frombuffer(imgpath.read(), dtype=np.uint8, offset=16).reshape(len(labels), 784)
 
-            return images, labels
+            return images, labels.astype(np.int32)
 
         if dataset == "fashion":
             if tmpdir is None:
@@ -239,7 +239,7 @@ def get_dataset(dataset, tmpdir = None):
         df = read_arff(eeg_path, "eyeDetection")
         df = pd.get_dummies(df)
         df.dropna(axis=1, inplace=True)
-        Y = df["label"].values.astype(np.int32)
+        Y = df["label"].values#.astype(np.int32)
         df = df.drop("label", axis=1)
 
         X = df.values.astype(np.float64)
@@ -259,7 +259,7 @@ def get_dataset(dataset, tmpdir = None):
         df = pd.DataFrame(Xdict)
         df = pd.get_dummies(df)
         df.dropna(axis=1, inplace=True)
-        Y = df["label"].values.astype(np.int32)
+        Y = df["label"].values#.astype(np.int32)
         df = df.drop("label", axis=1)
 
         X = df.values.astype(np.float64)
@@ -305,7 +305,7 @@ def get_dataset(dataset, tmpdir = None):
                 Xdict[cname] = data[cname]
         df = pd.DataFrame(Xdict)
         df = pd.get_dummies(df)
-        Y = df["label"].values.astype(np.int32)
+        Y = df["label"].values#.astype(np.int32)
         df = df.drop("label", axis=1)
 
         X = df.values.astype(np.float64)
@@ -317,6 +317,71 @@ def get_dataset(dataset, tmpdir = None):
         le = LabelEncoder()
         Y = le.fit_transform(label)
         X = df.values
+    elif dataset =="postures":
+        p_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/00405/Postures.zip", "Postures.zip", tmpdir)
+        zfile = ZipFile(p_path, 'r')
+        wrappedfile = TextIOWrapper(zfile.open('Postures.csv'), encoding='ascii')
+        df = pd.read_csv(wrappedfile, na_values="?")
+        df = df.dropna(axis=1)
+        # Skip the first row which contains an "empty" measruments. Its the only one with class 0
+        df = df.iloc[1:]
+        df.pop("User")
+        label = df.pop("Class")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "anuran":
+        anura_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/00406/Anuran%20Calls%20(MFCCs).zip", "Anuran.zip", tmpdir)
+        zfile = ZipFile(anura_path, 'r')
+        wrappedfile = TextIOWrapper(zfile.open('Frogs_MFCCs.csv'), encoding='ascii')
+        df = pd.read_csv(wrappedfile, header=0)
+        df = df.dropna(axis=1)
+        df.pop("RecordID")
+        df.pop("Family")
+        df.pop("Genus")
+        label = df.pop("Species")
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+        X = df.values
+    elif dataset == "chess":
+        chess_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/chess/king-rook-vs-king/krkopt.data", "krkopt.csv", tmpdir)
+        df = pd.read_csv(chess_path, header=None)
+        df = df.dropna()
+        label = df[df.columns[-1]]
+        df = df[df.columns[:-1]]
+        df = pd.get_dummies(df)
+        X = df.values
+        le = LabelEncoder()
+        Y = le.fit_transform(label)
+    elif dataset == "ida2016":
+        ida_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/00414/to_uci.zip", "ida2016.zip", tmpdir)
+        zfile = ZipFile(ida_path, 'r')
+        wftest = TextIOWrapper(zfile.open('to_uci/aps_failure_test_set.csv'), encoding='ascii')
+        dftest = pd.read_csv(wftest, skiprows=20,na_values="na")
+        dftest = dftest.fillna(-1)
+
+        wftrain = TextIOWrapper(zfile.open('to_uci/aps_failure_training_set.csv'), encoding='ascii')
+        dftrain = pd.read_csv(wftrain, skiprows=20,na_values="na")
+        dftrain = dftrain.fillna(-1)
+
+        y_train = dftrain.pop("class")
+        X_train = dftrain.values
+        y_test = dftest.pop("class")
+        X_test = dftest.values
+
+        le = LabelEncoder()
+        y_train = le.fit_transform(y_train)
+        y_test = le.transform(y_test)
+        
+        return X_train,y_train,X_test,y_test
+    # elif dataset == "shuttle":
+    #     shuttle_path = download("https://www.openml.org/data/get_csv/3619/dataset_186_satimage.arff", "satimage.csv", tmpdir)
+    #     df = pd.read_csv(shuttle_path, header = 0, delimiter=",")
+    #     df = df.dropna()
+    #     label = df.pop("class")
+    #     le = LabelEncoder()
+    #     Y = le.fit_transform(label)
+    #     X = df.values
     else:
         raise ValueError("Unsupported dataset provided to get_dataset in datasets.py: {}!".format(dataset))
         # return None, None
