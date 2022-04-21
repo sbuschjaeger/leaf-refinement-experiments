@@ -22,4 +22,5 @@ dependencies:
   - pip:
     - psutil
     - scikit_posthocs
-#    - pip install https://github.com/sbuschjaeger/PyPruning.git
+    - pip install git+https://github.com/sbuschjaeger/PyPruning.git
+    - pip install git+https://github.com/sbuschjaeger/fastinference.git

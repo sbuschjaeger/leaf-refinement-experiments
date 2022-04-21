@@ -374,6 +374,97 @@ def get_dataset(dataset, tmpdir = None):
         y_test = le.transform(y_test)
         
         return X_train,y_train,X_test,y_test
+    elif dataset == "phynet":
+        phynet_path = download("http://phynetlab.com/dataset.zip", "phynet.zip", tmpdir)
+        zfile = ZipFile(phynet_path, 'r')
+
+        # This is a random split between train/test
+        test_files = [
+            "Merged_B100Data20Sep2017132054.csv"
+        ]
+
+        train_files = [
+            "Merged_B100Data20Sep2017133512.csv",
+            "Merged_B100Data20Sep2017135527.csv",
+            "Merged_B100Data20Sep2017142352.csv",
+            "Merged_B100Data20Sep2017145137.csv",
+            "Merged_B100Data20Sep2017150923.csv",
+            "Merged_B100Data20Sep2017153915.csv",
+            "Merged_B100Data20Sep2017160553.csv",
+            "Merged_B100Data20Sep2017161805.csv",
+            "Merged_B100Data20Sep2017162942.csv",
+            "Merged_B100Data20Sep2017164452.csv",
+            "Merged_B100Data22Sep2017112947.csv",
+            "Merged_B100Data22Sep2017141538.csv",
+            "Merged_B100Data22Sep2017150843.csv",
+            "Merged_B100Data22Sep2017154657.csv",
+            "Merged_B50Data20Sep2017140730.csv",
+            "Merged_B50Data20Sep2017143157.csv",
+            "Merged_B50Data20Sep2017150049.csv",
+            "Merged_B50Data20Sep2017153124.csv",
+            "Merged_B50Data20Sep2017154438.csv",
+            "Merged_B50Data20Sep2017161139.csv",
+            "Merged_B50Data20Sep2017162258.csv",
+            "Merged_B50Data20Sep2017163721.csv",
+            "Merged_B50Data20Sep2017165118.csv",
+            "Merged_B50Data22Sep2017112248.csv",
+            "Merged_B50Data22Sep2017143814.csv",
+            "Merged_B50Data22Sep2017150209.csv",
+            "Merged_B50Data22Sep2017160850.csv",
+            "Merged_B50Data22Sep2017164210.csv",
+            "Merged_B75Data20Sep2017141105.csv",
+            "Merged_B75Data20Sep2017142743.csv",
+            "Merged_B75Data20Sep2017145629.csv",
+            "Merged_B75Data20Sep2017152831.csv",
+            "Merged_B75Data20Sep2017154206.csv",
+            "Merged_B75Data20Sep2017160907.csv",
+            "Merged_B75Data20Sep2017162033.csv",
+            "Merged_B75Data20Sep2017163446.csv",
+            "Merged_B75Data20Sep2017164832.csv",
+            "Merged_B75Data22Sep2017112541.csv",
+            "Merged_B75Data22Sep2017142755.csv",
+            "Merged_B75Data22Sep2017150535.csv",
+            "Merged_B75Data22Sep2017155856.csv",
+            "Merged_B75Data22Sep2017165112.csv"
+        ]
+
+        X_train = []
+        Y_train = []
+        for f in train_files:
+            try:
+                tmp = TextIOWrapper(zfile.open('Data2Learn/{}'.format(f)), encoding='ascii')
+                df = pd.read_csv(tmp, header=0)
+                y = df["Pos"]
+                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos"], axis=1)
+                X_train.append(df.values)
+                Y_train.append(y)
+            except:
+                print("Error reading {}. Ignoring".format(f))
+        
+        X_train = np.concatenate(X_train)
+        Y_train = np.concatenate(Y_train)
+
+        X_test = []
+        Y_test = []
+        for f in test_files:
+            try:
+                tmp = TextIOWrapper(zfile.open('Data2Learn/{}'.format(f)), encoding='ascii')
+                df = pd.read_csv(tmp, header=0)
+                y = df["Pos"]
+                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos"], axis=1)
+                X_test.append(df.values)
+                Y_test.append(y)
+            except:
+                print("Error reading {}. Ignoring".format(f))
+        
+        X_test = np.concatenate(X_test)
+        Y_test = np.concatenate(Y_test)
+
+        le = LabelEncoder()
+        Y_train = le.fit_transform(Y_train)
+        Y_test = le.transform(Y_test)
+
+        return X_train,Y_train,X_test,Y_test
     # elif dataset == "shuttle":
     #     shuttle_path = download("https://www.openml.org/data/get_csv/3619/dataset_186_satimage.arff", "satimage.csv", tmpdir)
     #     df = pd.read_csv(shuttle_path, header = 0, delimiter=",")
