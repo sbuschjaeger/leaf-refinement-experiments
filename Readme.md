@@ -65,7 +65,7 @@ The results are stored in `${Dataset}/results/${base}/${use_prune}/${date}/resul
 
 In order to re-produce the experiments form the paper you can call:
 
-    ./run.py --dataset adult anura bank chess connect eeg elec postures japanese-vowels magic mozilla mnist nomao avila ida2016 satimage --n_estimators 256 --n_prune 2 4 8 16 32 64 128 256 --nl 64 128 256 512 1024 --n_jobs 128 --xval 5 --base RandomForestClassifier
+    ./run.py --dataset adult anura avila bank chess connect eeg elec fashion gas-drift har ida216 japanese-vowels jm1 magic mnist mozilla nursery postures statlog --n_estimators 2 4 8 16 32 64 128 256 --nl 64 128 256 512 1024 2048 --l1_reg 0.01 0.05 0.1 0.5 1.0 --n_jobs 128 --xval 5 --base RandomForestClassifier
 
 **Important:** This call uses 128 threads and requires a decent (something in the range of 64GB) amount of memory to work. 
 

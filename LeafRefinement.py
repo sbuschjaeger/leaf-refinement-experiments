@@ -206,6 +206,7 @@ class LeafRefinery(nn.Module):
 
         if n_jobs is not None:
             torch.set_num_threads(n_jobs)
+            torch.multiprocessing.set_sharing_strategy('file_system')
 
         assert loss_function in ["mse", "nll", "cross-entropy"], "LeafRefinery only supports the {{mse, nll, cross-entropy}} loss but you gave {}".format(loss_function)
         assert lr >= 0, "Learning rate must be positive, but you gave {}".format(lr)
@@ -244,13 +245,13 @@ class LeafRefinery(nn.Module):
             self.ensemble_regularizer = "none"
 
     def predict_proba(self, X):
+        proba = []
         if len(self.trees) == 0:
             y_default = np.array([1.0 / self.n_classes_ for _ in range(self.n_classes_)])
             for _ in X:
                 proba.append(y_default)
             return np.array(proba)
         else:
-            proba = []
             for h, w in zip(self.trees, self.weights):
                 proba.append(w * h.predict_proba(X))
             return np.stack(proba).mean(axis=0)
@@ -362,7 +363,7 @@ class LeafRefinery(nn.Module):
         # pruning => refinement => 
         # joint via L1
         self.trees = [Tree(e, None) for e in estimators] 
-        if self.pruner != "L1" and self.pruner != "hard-L0":
+        if self.pruner != "L1" and self.pruner != "hard-L0" and self.pruner != "none":
             self.pruner.prune(X,Y,self.trees, classes, n_classes)
             self.trees, weights = self.pruner.estimators_, np.array(self.pruner.weights_)
         else:
@@ -434,7 +435,7 @@ class LeafRefinery(nn.Module):
                     # compute some statistics 
                     loss_sum += loss.detach().numpy() #+ sum(abs(self.torch_weights.detach().numpy()))
                     accuracy_sum += accuracy_score(fbar.argmax(axis=1),y) * 100.0
-                    n_estimators_sum += torch.count_nonzero(self.torch_weights)
+                    n_estimators_sum += torch.count_nonzero(self.torch_weights).numpy()
                     n_nodes_sum += sum([0 if w == 0 else n for w,n in zip(self.torch_weights, node_counts)])
 
                     batch_cnt += 1 

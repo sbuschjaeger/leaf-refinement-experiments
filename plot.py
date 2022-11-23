@@ -78,25 +78,46 @@ def method_name(row):
         return row["pruning"] + ("+LR" if row["LR"] is True else "")
 
 files = [
-    "adult_22-03-2022-19:00.csv", 
-    "anuran_24-03-2022-10:20.csv", 
-    "avila_23-03-2022-09:08.csv",
-    "bank_22-03-2022-21:39.csv", 
-    "connect_24-03-2022-04:51.csv",
-    "eeg_22-03-2022-13:13.csv", 
-    "elec_22-03-2022-15:51.csv", 
-    "fashion_23-03-2022-16:46.csv",
-    "gas-drift_23-03-2022-00:33.csv", 
-    "ida2016_25-03-2022-09:41.csv",
-    "japanese-vowels_23-03-2022-22:57.csv", 
-    "magic_22-03-2022-16:58.csv", 
-    "mnist_23-03-2022-21:00.csv",
-    "mozilla_23-03-2022-02:49.csv", 
-    "postures_25-03-2022-02:23.csv",
-    # "29-03-2022-23:47.csv"
-    #"shuttle_24-03-2022-16:55.csv", # Does this make sense?
-    #"weather_23-03-2022-01:46.csv",
-    #"28-03-2022-02:09.csv" # No L0 / hard-L0
+    # "adult_22-03-2022-19:00.csv", 
+    # "anuran_24-03-2022-10:20.csv", 
+    # "avila_23-03-2022-09:08.csv",
+    # "bank_22-03-2022-21:39.csv", 
+    # "connect_24-03-2022-04:51.csv",
+    # "eeg_22-03-2022-13:13.csv", 
+    # "elec_22-03-2022-15:51.csv", 
+    # "fashion_23-03-2022-16:46.csv",
+    # "gas-drift_23-03-2022-00:33.csv", 
+    # "ida2016_25-03-2022-09:41.csv",
+    # "japanese-vowels_23-03-2022-22:57.csv", 
+    # "magic_22-03-2022-16:58.csv", 
+    # "mnist_23-03-2022-21:00.csv",
+    # "mozilla_23-03-2022-02:49.csv", 
+    # "postures_25-03-2022-02:23.csv",
+    # "statlog_19-07-2022-08:30.csv",
+    # "jm1_19-07-2022-11:16.csv",
+    # "chess_20-07-2022-16:42.csv",
+    # "har_19-07-2022-13:00.csv",
+    # "nursery_19-07-2022-10:30.csv"
+    "adult_17-11-2022-16:15.csv",
+    "anuran_17-11-2022-18:03.csv",
+    "avila_17-11-2022-18:49.csv",
+    "bank_17-11-2022-21:24.csv",
+    "chess_18-11-2022-05:41.csv",
+    "connect_18-11-2022-10:00.csv",
+    "eeg_18-11-2022-10:59.csv",
+    "elec_23-11-2022-16:51.csv",
+    "fashion_18-11-2022-17:17.csv",
+    "gas-drift_18-11-2022-19:18.csv",
+    "har_18-11-2022-20:44.csv",
+    "ida2016_18-11-2022-21:51.csv",
+    "japanese-vowels_19-11-2022-00:01.csv",
+    "jm1_19-11-2022-00:54.csv",
+    "magic_19-11-2022-02:19.csv",
+    "mnist_21-11-2022-16:15.csv",
+    "mozilla_21-11-2022-16:58.csv",
+    "nursery_21-11-2022-18:08.csv",
+    "postures_22-11-2022-01:32.csv",
+    "statlog_22-11-2022-01:48.csv"
 ]
 
 dfs = []
@@ -119,13 +140,16 @@ df
 #     return ['font-weight: bold' if r == max_val else '' for r in row]
 
 def add_memory(row):
-    return str(np.round(row["size_kb"]/1024.0,2)) + " MB"
+    if (row.method == "RF"):
+        return str(np.round(row["size_kb"]/1024.0,2)) + " MB \\vspace{0.2cm}"
+    else:
+        return str(np.round(row["size_kb"]/1024.0,2)) + " MB"
 
 def add_metric(row,metric="accuracy"):
     if metric == "accuracy":
-        return str(np.round(row[metric],2)) + " \%"
+        return str(np.round(row[metric],2)) + " $\pm$ " + str(np.round(row[metric + "_std"],2)) 
     else:
-        return str(np.round(row[metric],4)) 
+        return str(np.round(row[metric],4)) + " $\pm$ " + str(np.round(row[metric + "_std"],2))
     # if metric == "accuracy":
     #     return str(np.round(row[metric],2)) + " (" + str( np.round(row["size_kb"]/1024.0,2)) + " MB)"
     # else:
@@ -134,13 +158,20 @@ def add_metric(row,metric="accuracy"):
     #print(row)
     #dwd
 
+def conditional_max(val):
+    if val.name[1] == "accuracy" or val.name[1] == "f1":
+        max_val = max(val.values)
+        return ["bfseries: ;" if x == max_val else "" for x in val.values ]
+    else:
+        return ["" for x in val.values ]
+
 for metric in ["accuracy", "f1"]:
     dff = df.copy()
     #dff = dff.loc[dff["method"] != "RF"]
     dff.sort_values([metric], inplace=True)
     dff = dff.drop_duplicates(["method", "dataset"], keep="last")
     dff.to_csv("cd_{}.csv".format(metric))
-    tmp = dff.sort_values(["dataset"])[["dataset", "method","size_kb", metric]]
+    tmp = dff.sort_values(["dataset"])[["dataset", "method","size_kb", "size_kb_std", metric, metric + "_std"]]
     tmp["memory"] = tmp.apply(add_memory, axis=1)
     tmp[metric] = tmp.apply(add_metric, metric=metric, axis=1)
     #tmp["combined"] = tmp.apply(add_memory, metric = metric, axis=1)
@@ -151,10 +182,16 @@ for metric in ["accuracy", "f1"]:
     ptable = ptable.swaplevel(0, 1, axis=1).sort_index(axis=1).stack()
     #dwdwd
 
+    metric_subset = ptable.index[range(0,len(ptable.index),2)]
     if metric == "f1":
-        s = ptable.style.format(na_rep="-", precision=4).highlight_max(axis=1,props='bfseries: ;').hide_index(level=1)
+        #s = ptable.style.format(na_rep="-", precision=4).highlight_max(axis=1,props='bfseries: ;',subset=metric_subset).hide_index(level=1)
+        s = ptable.style.format(na_rep="-", precision=4).apply(conditional_max, axis=1).hide_index(level=1)
     else:
-        s = ptable.style.format(na_rep="-", precision=2).highlight_max(axis=1,props='bfseries: ;').hide_index(level=1)
+        #s = ptable.style.format(na_rep="-", precision=2).highlight_max(axis=1,props='bfseries: ;',subset=metric_subset).hide_index(level=1)
+        s = ptable.style.format(na_rep="-", precision=2).apply(conditional_max, axis=1).hide_index(level=1)
+    
+    #print(s)
+    #dwdw
     tex = s.to_latex()#float_format="%.2f", index=True)
     #tex = ptable.style.apply(highlight_max,axis=1).render().to_latex(na_rep="-", float_format="%.2f", index=True)
 
@@ -257,22 +294,26 @@ for metric in ["accuracy"]: #, "f1"
 for metric in ["accuracy", "f1"]:
     dfs = []
     mem_sizes = [128, 256, 512, 1024, 2048]
+    #mem_sizes = [14]
+    #df = df.loc[df["dataset"] == "phynet"]
 
-    all_methods = dff.loc[dff["method"] != "RF"]["method"].unique()
+    #all_methods = df.loc[df["method"] != "RF"]["method"].unique()
+    all_methods = df["method"].unique()
+
     for mem in mem_sizes:
         tmp_df = []
         for d in df["dataset"].unique():
-            dff = df.loc[df["dataset"] == d]
+            dff = df.loc[df["dataset"] == d].copy()
             #dff = dff.loc[dff["method"] != "L1"]
-            dff = dff.loc[dff["method"] != "RF"]
+            #dff = dff.loc[dff["method"] != "RF"]
             
             mdf = dff.loc[dff["size_kb"] <= mem].copy()
             mdf.sort_values([metric], inplace=True)
             mdf = mdf.drop_duplicates(["method"], keep="last")
             mdf = mdf[["dataset", "method", metric]]
 
-            row = {"dataset":d, "method":m, metric:0}
             for m in all_methods:
+                row = {"dataset":d, "method":m, metric:0}
                 if m not in mdf["method"].unique():
                     mdf = mdf.append(row, ignore_index = True)
             
@@ -291,6 +332,7 @@ for metric in ["accuracy", "f1"]:
 
         filtered_df.to_csv("mem_{}_{}_kb.csv".format(mem,metric),index=False)
         print("Filtered for {} KB. Now {} entries".format(mem, len(filtered_df)))
+        display(filtered_df)
         print(tex)
 
         # print(filtered_df[["method", "accuracy", "dataset"]])
@@ -328,7 +370,7 @@ for metric in ["accuracy", "f1"]:
 # 16,32,64,128,256,512,1024,2048
 # dff = df.loc[df["max_leafs"] == 16].copy()
 dff = df.loc[df["method"] == "L1+LR"].copy()
-# dff = dff.loc[dff["max_leafs"] == 256]
+#dff = dff.loc[dff["max_leafs"] == 256]
 # dff = dff.loc[dff["dataset"] == "elec"]
 # dff.loc[dff["l1"] == 0.05]["n_estimators"]
 
@@ -342,14 +384,15 @@ max_n_estimators = []
 
 for l in sorted(dff["l1"].unique()):
     #print(dff.loc[dff["l1"] == l]["n_estimators"])
-    tmp = dff.loc[dff["l1"] == l]["size_kb"]
+    tmp = dff.loc[dff["l1"] == l]["n_estimators"]
     mean_n_estimators.append(np.mean(tmp))
+    print("{}: {}".format(l, np.mean(tmp)))
     min_n_estimators.append(np.min(tmp))
     max_n_estimators.append(np.max(tmp))
     std_n_estimators.append(np.std(tmp))
     mean_acc.append(np.mean(dff.loc[dff["l1"] == l]["accuracy"]))
     std_acc.append(np.std(dff.loc[dff["l1"] == l]["accuracy"]))
-    lambdas.append(dff.loc[dff["l1"] == l]["n_estimators"])
+    lambdas.append(l)
 
 # print(lambdas)
 # print(mean_n_estimators)
@@ -370,14 +413,16 @@ plt.style.use('seaborn-whitegrid')
 plt.rcParams['text.usetex'] = False
 # import numpy as np
 
+plt.figure()
 # Visualize the result
 plt.plot(lambdas, mean_n_estimators, 'ob', alpha=0.6)
 #plt.plot(lambdas, sorted(df["K"].unique()), '+g', alpha=0.6)
+
 plt.plot(lambdas, mean_n_estimators, '-', color='b', alpha=0.6)
 plt.fill_between(lambdas, mean_n_estimators - std_n_estimators, mean_n_estimators + std_n_estimators,color='blue', alpha=0.1)
 #plt.xlabel(r'\lambda')
 plt.xlabel(r'λ')
-plt.ylabel("Size")
+plt.ylabel("Number of estimators")
 plt.savefig("nest_over_lambda.pdf", format="pdf", bbox_inches="tight")
 plt.show()
 
@@ -389,12 +434,60 @@ plt.show()
 
 # %%
 
-datasets = "datasets_25-03-2022-11:12.csv"
-ddf = pd.read_csv(datasets)
-ddf = ddf.drop_duplicates(["dataset"], keep="last")
+plt.style.use('seaborn-whitegrid')
 
-tmp = ddf.to_latex(na_rep="-", float_format="%.2f", index=False)
+for metric in ["accuracy", "f1"]:
+    #all_methods = df.loc[df["method"] != "RF"]["method"].unique()
+    all_methods = df["method"].unique()
+
+    for d in df["dataset"].unique():
+        fig = plt.figure()
+        print("{} on {}".format(metric, d))
+        dff = df.loc[df["dataset"] == d].copy()
+        dff = dff.loc[dff["method"] != "RF"]
+        dff = dff.loc[dff["max_leafs"] == 2048]
+        dff = dff.loc[ (dff["rho"] == 0.25) | (dff["rho"].isna())]
+        
+        # mdf = dff.loc[dff["size_kb"] <= mem].copy()
+        dff.sort_values([metric], inplace=True)
+        dff = dff.sort_values(by = ["n_estimators"])
+        dff = dff[["method", metric, "n_estimators"]]
+        for m in all_methods:
+            x = dff.loc[dff["method"] == m]["n_estimators"].values
+            y = dff.loc[dff["method"] == m][metric].values
+            plt.plot(x, y, label=m)
+        #dff.plot.line(x="n_estimators",y=metric)
+        plt.xlabel("Number of estimators")
+        plt.ylabel("Accuracy" if metric == "accuracy" else r"$F_1$ score")
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        fig.savefig("{}_over_estimators_{}.pdf".format(metric, d), bbox_inches='tight')
+        plt.close()
+        #plt.plot(mdf["n_estimators"], mdf[metric], 'ob', alpha=0.6)
+
+# %%
+import pandas as pd
+datasets = [
+    "datasets_25-03-2022-11:12.csv",
+    "datasets_20-07-2022-16:42.csv",
+    "datasets_19-07-2022-08:30.csv",
+    "datasets_19-07-2022-10:30.csv",
+    "datasets_19-07-2022-11:16.csv",
+    "datasets_19-07-2022-13:00.csv"
+]
+
+dfs = []
+for d in datasets:
+    print("Reading {}".format(d))
+    dfs.append( pd.read_csv(d) )
+
+ddf = pd.concat(dfs, axis=0)
+ddf = ddf.drop_duplicates(["dataset"], keep="last")
+ddf = ddf.sort_values(by=["dataset"])
+
+tmp = ddf.to_latex(na_rep="-", float_format="%.3f", index=False)
 print(tmp)
+
+
 
 # Q2: What method offers the best accuracy given a certain tree depth? => 2d CD Diagram
 # for d in df["dataset"].unique():

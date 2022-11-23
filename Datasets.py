@@ -150,6 +150,36 @@ def get_dataset(dataset, tmpdir = None):
         X = df.values[:,1:].astype(np.float64)
         Y = df.values[:,0]
         Y = np.array( [ord(y) - 65 for y in Y] )
+    elif dataset == "jm1":
+        jm1_path = download("https://www.openml.org/data/download/53936/jm1.arff", "jm1.arff", tmpdir)
+        
+        df = read_arff(jm1_path, "defects")
+        df = pd.get_dummies(df)
+        df.dropna(axis=1, inplace=True)
+        Y = df["label"].values#.astype(np.int32)
+        df = df.drop("label", axis=1)
+
+        X = df.values.astype(np.float64)
+    elif dataset == "nursery":
+        nursery_path = download("https://www.openml.org/data/download/26/dataset_26_nursery.arff", "nursery.arff", tmpdir)
+        
+        df = read_arff(nursery_path, "class")
+        df = pd.get_dummies(df)
+        df.dropna(axis=1, inplace=True)
+        Y = df["label"].values#.astype(np.int32)
+        df = df.drop("label", axis=1)
+
+        X = df.values.astype(np.float64)
+    elif dataset == "har":
+        har_path = download("https://www.openml.org/data/download/1589271/php88ZB4Q.arff", "har.arff", tmpdir)
+        
+        df = read_arff(har_path, "Class")
+        df = pd.get_dummies(df)
+        df.dropna(axis=1, inplace=True)
+        Y = df["label"].values#.astype(np.int32)
+        df = df.drop("label", axis=1)
+
+        X = df.values.astype(np.float64)
     elif dataset == "connect":
         connect_path = download("https://www.openml.org/data/get_csv/4965243/connect-4.arff", "connect.csv", tmpdir)
         
@@ -427,7 +457,6 @@ def get_dataset(dataset, tmpdir = None):
             "Merged_B75Data22Sep2017155856.csv",
             "Merged_B75Data22Sep2017165112.csv"
         ]
-
         X_train = []
         Y_train = []
         for f in train_files:
@@ -435,7 +464,7 @@ def get_dataset(dataset, tmpdir = None):
                 tmp = TextIOWrapper(zfile.open('Data2Learn/{}'.format(f)), encoding='ascii')
                 df = pd.read_csv(tmp, header=0)
                 y = df["Pos"]
-                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos"], axis=1)
+                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos", "Acc_x", "Acc_y", "Acc_z"], axis=1)
                 X_train.append(df.values)
                 Y_train.append(y)
             except:
@@ -451,7 +480,7 @@ def get_dataset(dataset, tmpdir = None):
                 tmp = TextIOWrapper(zfile.open('Data2Learn/{}'.format(f)), encoding='ascii')
                 df = pd.read_csv(tmp, header=0)
                 y = df["Pos"]
-                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos"], axis=1)
+                df = df.drop(["Time", "UNIX_T", "Si", "Co", "Ro", "Pos", "Acc_x", "Acc_y", "Acc_z"], axis=1)
                 X_test.append(df.values)
                 Y_test.append(y)
             except:
@@ -465,14 +494,26 @@ def get_dataset(dataset, tmpdir = None):
         Y_test = le.transform(Y_test)
 
         return X_train,Y_train,X_test,Y_test
-    # elif dataset == "shuttle":
-    #     shuttle_path = download("https://www.openml.org/data/get_csv/3619/dataset_186_satimage.arff", "satimage.csv", tmpdir)
-    #     df = pd.read_csv(shuttle_path, header = 0, delimiter=",")
-    #     df = df.dropna()
-    #     label = df.pop("class")
-    #     le = LabelEncoder()
-    #     Y = le.fit_transform(label)
-    #     X = df.values
+    elif dataset == "statlog":
+        # Note: These are the unnormalized feature values. There is also a normalized version available under 
+        # https://www.openml.org/search?type=data&sort=runs&id=182&status=active
+
+        train_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/satimage/sat.trn", "sat.trn", tmpdir)
+        df_train = pd.read_csv(train_path, header = None, delimiter=" ")
+        df_train = df_train.dropna()
+
+        le = LabelEncoder()
+        YTrain = le.fit_transform(df_train.values[:,-1])
+        XTrain = df_train.values[:,:-1]
+
+        test_path = download("https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/satimage/sat.tst", "sat.tst", tmpdir)
+        df_test = pd.read_csv(test_path, header = None, delimiter=" ")
+        df_test = df_test.dropna()
+        
+        XTest = df_test.values[:,:-1]
+        YTest = le.transform(df_test.values[:,-1])
+
+        return XTrain, YTrain, XTest, YTest
     else:
         raise ValueError("Unsupported dataset provided to get_dataset in datasets.py: {}!".format(dataset))
         # return None, None

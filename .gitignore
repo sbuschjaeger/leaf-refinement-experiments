@@ -16,3 +16,13 @@ __pycache__
 *.trn
 *.html
 *.gz
+phynetlab/COMP
+phynetlab/DREP
+phynetlab/IC
+phynetlab/IE
+phynetlab/L1
+phynetlab/L1+LR
+phynetlab/LMD
+phynetlab/LR
+phynetlab/RE
+phynetlab/RF
